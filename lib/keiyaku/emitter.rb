@@ -6,6 +6,7 @@ require "rbconfig"
 require_relative "runtime"
 require_relative "names"
 require_relative "emitter/rbs"
+require_relative "emitter/security"
 
 module Keiyaku
   # Turns an OpenAPI document into three files: value types, a client, and RBS.
@@ -106,6 +107,13 @@ module Keiyaku
       raise Impossible, @poisoned[const] if @poisoned.key?(const)
 
       const
+    end
+
+    # Resolved here rather than in Security, which has no document to look a
+    # $ref up in. An unresolvable one raises where every other bad $ref does,
+    # while the operations are being collected.
+    def security_schemes
+      (@spec.dig("components", "securitySchemes") || {}).transform_values { resolve(_1) }
     end
 
     # --- schemas ------------------------------------------------------------
@@ -412,7 +420,7 @@ module Keiyaku
         @notes << "no servers declared; a client has to be built with base_url:"
       end
 
-      collect_security
+      @security = Security.new(schemes: security_schemes, default: @spec["security"], notes: @notes)
 
       operations = (@spec["paths"] || {}).flat_map do |template, path_item|
         begin
@@ -442,97 +450,6 @@ module Keiyaku
       end
 
       operations.uniq { _1[:unsupported] ? _1[:name] : _1.object_id }
-    end
-
-    # --- security -----------------------------------------------------------
-
-    # The schemes the document declares, in the runtime's own vocabulary. One
-    # nobody can implement is kept out of the table rather than out of the
-    # document: it only costs the operations that actually require it.
-    def collect_security
-      @schemes = {}
-      @unsupported_schemes = {}
-
-      (@spec.dig("components", "securitySchemes") || {}).each do |name, scheme|
-        scheme = resolve(scheme)
-        if (declaration = security_declaration(scheme))
-          @schemes[name] = declaration
-        else
-          @unsupported_schemes[name] = [scheme["type"], scheme["scheme"]].compact.join(" ")
-        end
-      end
-
-      @default_security = requirement_for(@spec["security"])
-      # What an operation that says nothing about security gets. An
-      # alternative naming a scheme nothing can send is not one of them, and
-      # the operations that are left with none are refused one by one below.
-      @default_usable = (@default_security || []).select { |schemes| schemes.all? { @schemes.key?(_1) } }
-    end
-
-    def security_declaration(scheme)
-      case [scheme["type"], scheme["scheme"]&.downcase, scheme["in"]]
-      in ["http", "bearer", _] then ":bearer"
-      in ["http", "basic", _] then ":basic"
-      # An OAuth 2 access token is a bearer token, and so is the one an
-      # OpenID Connect flow ends with; where it goes on the request is RFC
-      # 6750 rather than a guess. Obtaining it is the caller's business —
-      # nothing here runs a flow, which is also why the scopes a requirement
-      # lists say nothing this client could act on.
-      in ["oauth2" | "openIdConnect", _, _] then ":bearer"
-      in ["apiKey", _, "header"] then "{ header: #{scheme["name"].inspect} }"
-      in ["apiKey", _, "query"] then "{ query: #{scheme["name"].inspect} }"
-      in ["apiKey", _, "cookie"] then "{ cookie: #{scheme["name"].inspect} }"
-      else nil
-      end
-    end
-
-    # A security requirement is a list of alternatives, any one of which is
-    # enough, each naming schemes that all have to be satisfied. `security: []`
-    # is the operation that takes no credentials, which is not the same as the
-    # key being absent — that one takes the document's.
-    def requirement_for(declared) = declared&.map(&:keys)
-
-    # What one operation actually requires, with the alternatives the client
-    # could not satisfy dropped. Only when none are left is the operation
-    # refused: an operation that documents mutualTLS *or* an API key is one
-    # this client can still call.
-    def security_for(name, op)
-      alternatives = op.key?("security") ? requirement_for(op["security"]) : @default_security
-      return [] if alternatives.nil? || alternatives.empty?
-
-      usable, rejected = alternatives.partition { |schemes| schemes.all? { @schemes.key?(_1) } }
-
-      rejected.each do |schemes|
-        unknown = schemes.reject { @schemes.key?(_1) || @unsupported_schemes.key?(_1) }
-        raise Impossible, "requires #{unknown.first.inspect}, which the document does not declare" if unknown.any?
-      end
-
-      if usable.empty?
-        needed = rejected.flatten.uniq.map { "#{_1} (#{@unsupported_schemes[_1]})" }
-        raise Impossible, "requires #{needed.join(" or ")}, which the runtime has no way to send"
-      end
-      if rejected.any?
-        @notes << "#{name}: sends #{usable.first.join(" and ")}; " \
-                  "the document also allows #{rejected.map { _1.join(" and ") }.join(" or ")}, which is not supported"
-      end
-
-      usable
-    end
-
-    # The shortest spelling of a requirement: a bare scheme name where there is
-    # one alternative naming one scheme, `false` where there is no requirement
-    # at all, and the alternatives written out where there is a choice.
-    def requirement_source(alternatives)
-      return "false" if alternatives.empty?
-      return alternatives.first.first.to_sym.inspect if alternatives.size == 1 && alternatives.first.size == 1
-
-      "[#{alternatives.map { |schemes| "[#{schemes.map { _1.to_sym.inspect }.join(", ")}]" }.join(", ")}]"
-    end
-
-    # Emitted on an operation only where it differs from the client's default,
-    # which is the document's own root requirement.
-    def security_source(alternatives)
-      requirement_source(alternatives) unless alternatives == @default_usable
     end
 
     # An operationId is optional, and plenty of documents that a server
@@ -635,7 +552,7 @@ module Keiyaku
 
       { name:, verb:, template:, query:, header:, types:, body:, form:, multipart:, content_type:, into:,
         errors:, hint:, paginate: (hint && hash_source(hint)),
-        security: security_source(security_for(name, op)), summary: op["summary"], deps: }
+        security: @security.source_for(name, op), summary: op["summary"], deps: }
     end
 
     # Every success response the document described, by its status. Several of
@@ -827,29 +744,13 @@ module Keiyaku
         module #{@namespace}
           class Client < Keiyaku::Client
             server #{@spec.dig("servers", 0, "url").inspect}
-        #{security_table}
+        #{@security.table}
         #{lines.join("\n")}
           end
         end
       RUBY
     end
 
-    # The schemes the whole document has, and the requirement that holds
-    # wherever an operation does not state one of its own. Both belong to the
-    # client rather than to any of its methods.
-    def security_table
-      return "" if @schemes.empty?
-
-      table = @schemes.map { |name, declaration| "#{scheme_key(name)} #{declaration}" }
-      default = @default_usable.empty? ? "" : ", default: #{requirement_source(@default_usable)}"
-      "    security({ #{table.join(", ")} }#{default})\n"
-    end
-
-    # The document's own name for the scheme, which is what credentials are
-    # given by, so it is left exactly as the document spells it.
-    def scheme_key(name)
-      name.match?(/\A[a-zA-Z_][a-zA-Z0-9_]*\z/) ? "#{name}:" : "#{name.inspect}:"
-    end
 
     # The operation's `into:`. One success response is the type itself; several
     # are a table for the runtime to read the status against.
