@@ -45,6 +45,11 @@ components:
         kind: { type: string }
         id: { type: integer }
         reason: { type: string }
+    ImportQueued:
+      type: object
+      required: [job_id]
+      properties:
+        job_id: { type: string }
     Event:
       oneOf:
         - $ref: "#/components/schemas/WidgetCreated"
@@ -121,6 +126,35 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Widget" }
+  # Three things at once that a document is entitled to say and that Ruby is
+  # awkward about: a body that is text rather than JSON, a parameter named
+  # after a keyword, and two success statuses that are two different types.
+  /widgets/import:
+    post:
+      operationId: importWidgets
+      parameters:
+        # `until` is a keyword argument, which Ruby will take; the generated
+        # body reads it back out of its binding, since naming it there would
+        # start a loop.
+        - { name: until, in: query, schema: { type: string, format: date-time } }
+      requestBody:
+        required: true
+        # Two media types for one string. The first is used and the other is
+        # reported, since the schemas differ only in the header.
+        content:
+          text/csv: { schema: { type: string } }
+          text/plain: { schema: { type: string } }
+      responses:
+        "200":
+          description: imported
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Widget" } }
+        "202":
+          description: still importing
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ImportQueued" }
   /widgets/search:
     get:
       operationId: searchWidgets

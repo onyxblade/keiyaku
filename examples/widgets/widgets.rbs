@@ -33,6 +33,12 @@ module Widgets
     def to_json_hash: () -> Hash[String, untyped]
   end
 
+  class ImportQueued < ::Data
+    attr_reader job_id: String
+    def self.cast: (untyped, ?String) -> ImportQueued
+    def to_json_hash: () -> Hash[String, untyped]
+  end
+
   type event = WidgetCreated | WidgetRetired
   Event: Keiyaku::OneOf
 
@@ -56,6 +62,7 @@ module Widgets
     def create_widget: (Widget body) -> Widget
     def get_widget: (Integer id) -> Widget
     def upload_photo: (Integer id, UploadPhotoBody body) -> Widget
+    def import_widgets: (String body, ?until: Time?) -> (Array[Widget] | ImportQueued)
     def search_widgets: (q: String, ?cursor: String?) -> SearchWidgetsResult
     def search_widgets_each: (q: String, ?cursor: String?) ?{ (Widget) -> void } -> Enumerator[Widget, void]
     def widget_feed: () -> Array[Widget]

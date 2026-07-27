@@ -40,6 +40,16 @@ module Keiyaku
   class ClientError < HTTPError; end
   class ServerError < HTTPError; end
 
+  # The words Ruby will not read as a name. Lives here rather than with the
+  # generator's other name tables because the generated method body has to
+  # know too: a parameter may be named for one of these, and reading it is
+  # not a matter of writing it down.
+  KEYWORDS = %w[
+    BEGIN END alias and begin break case class def defined do else elsif end ensure false for if in module
+    next nil not or redo rescue retry return self super then true undef unless until when while yield __FILE__
+    __LINE__ __ENCODING__
+  ].freeze
+
   module_function
 
   def camelize(name)
@@ -192,6 +202,28 @@ module Keiyaku
 
       variant.cast(value, path)
     end
+  end
+
+  # Several success responses that are several types:
+  #
+  #   into: ByStatus[200 => PagesHealthCheck, 202 => EmptyObject]
+  #
+  # Not a type — nothing casts *into* one of these — but the thing an
+  # operation's `into:` is when the document gave more than one answer. The
+  # document says which type belongs to which status and the response carries
+  # the status, so the choice is read rather than guessed. A status the
+  # document did not describe is left alone, since the alternative is a
+  # CastError naming a type the server never claimed to be sending.
+  class ByStatus
+    def self.[](types) = new(types)
+
+    attr_reader :types
+
+    def initialize(types)
+      @types = types.to_h { |status, type| [status.to_i, type] }.freeze
+    end
+
+    def [](status) = @types[status]
   end
 
   # One file in a multipart/form-data body.
@@ -390,10 +422,17 @@ module Keiyaku
         keywords = query_params.map { |param, req| "#{Keiyaku.snake(param)}:#{" Keiyaku::UNSET" unless req}" } +
                    header_params.map { |_, ruby, req| "#{ruby}:#{" Keiyaku::UNSET" unless req}" }
 
+        # `def find(until: nil)` is a method Ruby will define, but `until` in
+        # its body starts a loop rather than naming the argument — a keyword
+        # argument's label only becomes a readable local by that route. The
+        # binding has it under the document's name either way, which is why
+        # such a parameter is generated rather than refused.
+        read = ->(ruby) { KEYWORDS.include?(ruby) ? "binding.local_variable_get(:#{ruby})" : ruby }
+
         arguments = <<~RUBY.chomp
           path: {#{path_params.map { "#{_1.inspect} => #{Keiyaku.snake(_1)}" }.join(", ")}},
-            query: {#{query_params.map { |p, _| "#{p.inspect} => #{Keiyaku.snake(p)}" }.join(", ")}},
-            header: {#{header_params.map { |json, ruby, _| "#{json.inspect} => #{ruby}" }.join(", ")}},
+            query: {#{query_params.map { |p, _| "#{p.inspect} => #{read.(Keiyaku.snake(p))}" }.join(", ")}},
+            header: {#{header_params.map { |json, ruby, _| "#{json.inspect} => #{read.(ruby)}" }.join(", ")}},
             body: #{body || form || multipart ? "body" : "nil"}
         RUBY
 
@@ -508,7 +547,7 @@ module Keiyaku
         elsif op[:form]
           headers["Content-Type"] = "application/x-www-form-urlencoded"
           URI.encode_www_form(Keiyaku.dump(body))
-        elsif op[:body] == :binary
+        elsif %i[binary text].include?(op[:body])
           headers["Content-Type"] = op[:content_type]
           body.respond_to?(:read) ? body.read : body
         elsif op[:body]
@@ -526,7 +565,9 @@ module Keiyaku
         raise klass.new(status:, headers: response_headers, body: raw, parsed:)
       end
 
-      [op[:into] ? Keiyaku.coerce(op[:into], parsed, name.to_s) : parsed, response_headers]
+      into = op[:into]
+      into = into[status] if into.is_a?(ByStatus)
+      [into ? Keiyaku.coerce(into, parsed, name.to_s) : parsed, response_headers]
     end
 
     # Walk a paginated operation, yielding items rather than pages: the page is

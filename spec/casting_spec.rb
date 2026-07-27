@@ -71,6 +71,31 @@ RSpec.describe "decoding a response" do
     end
   end
 
+  # POST /widgets/import answers with the widgets, or with a job when there
+  # are too many to do now. Both are the operation's answer, and the document
+  # says which type belongs to which status, so nothing is guessed: the status
+  # picks the type. The alternative is casting a job into the array's type and
+  # handing back something empty.
+  describe "an operation whose statuses are different types" do
+    it "casts the one the document gave that status" do
+      expect(widgets.import_widgets("id\n1\n")).to eq [Widgets::Widget.new(id: 1, created_at: Time.utc(2026, 7, 26, 10))]
+    end
+
+    it "casts the other one too" do
+      expect(widgets.import_widgets("id\n1\n2\n3\n")).to eq Widgets::ImportQueued.new(job_id: "j-1")
+    end
+
+    it "is one type again where the statuses agree" do
+      expect(Widgets::Client.operations[:get_widget][:into]).to eq Widgets::Widget
+    end
+
+    # A status the document did not describe is left alone: the alternative is
+    # a CastError naming a type the server never claimed to be sending.
+    it "passes through a status the document did not describe" do
+      expect(Widgets::Client.operations[:import_widgets][:into][418]).to be_nil
+    end
+  end
+
   describe "a payload that does not fit" do
     it "names the offending field" do
       expect { Petstore::Pet.cast({ "name" => "x", "photoUrls" => [], "id" => "not-a-number" }) }

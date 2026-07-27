@@ -8,6 +8,10 @@ module Keiyaku
   # A parameter that was not passed, distinct from one passed as nil.
   UNSET: untyped
 
+  # The words Ruby will not read as a name, which the generated method body
+  # needs too: a parameter may be called one of these.
+  KEYWORDS: Array[String]
+
   class Error < StandardError
   end
 
@@ -52,6 +56,13 @@ module Keiyaku
     def self.[]: (*untyped variants, on: String, ?map: Hash[untyped, untyped]) -> OneOf
     def initialize: (Array[untyped], String, Hash[untyped, untyped]) -> void
     def cast: (untyped, ?String) -> untyped
+  end
+
+  class ByStatus
+    def self.[]: (Hash[Integer, untyped] types) -> ByStatus
+    def initialize: (Hash[Integer, untyped]) -> void
+    def []: (Integer status) -> untyped
+    def types: () -> Hash[Integer, untyped]
   end
 
   class Upload

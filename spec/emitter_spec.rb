@@ -705,7 +705,9 @@ RSpec.describe Keiyaku::Emitter do
     end
   end
 
-  # One method has one return type, so the responses have to agree on it.
+  # One method returns one value, and several statuses are several types. The
+  # document says which is which and the response carries the status, so the
+  # method returns the union and the runtime reads the table.
   describe "more than one success response" do
     def two_successes(second)
       document(<<~YAML)
@@ -722,14 +724,123 @@ RSpec.describe Keiyaku::Emitter do
       YAML
     end
 
-    it "is refused when they disagree" do
-      emitter = generate(two_successes("{ type: object, properties: { jobId: { type: string } } }"))
-      expect(emitter.refusals.first.reason).to include("its success responses do not agree on a type")
+    let(:disagreeing) { two_successes("{ type: object, properties: { jobId: { type: string } } }") }
+
+    it "casts each status to the type the document gave it" do
+      generate(disagreeing) do |_, dir|
+        source = File.read(File.join(dir, "client.rb"))
+        expect(source).to include("into: Keiyaku::ByStatus[200 => CreateUserResult, 202 => CreateUser202Result]")
+      end
     end
 
-    it "is accepted when they are the same shape" do
-      emitter = generate(two_successes("{ type: object, properties: { id: { type: integer } } }"))
-      expect(emitter.refusals).to be_empty
+    it "returns the union of them" do
+      generate(disagreeing) do |_, dir|
+        signature = File.read(File.join(dir, "refused.rbs"))[/def create_user: .*/]
+        expect(signature).to end_with("-> (CreateUserResult | CreateUser202Result)")
+      end
+    end
+
+    it "is one type again when they are the same shape" do
+      generate(two_successes("{ type: object, properties: { id: { type: integer } } }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb"))).to include("into: CreateUserResult")
+      end
+    end
+
+    # `untyped` in a union takes the rest of it down with it, which is what
+    # GitHub's stats endpoints are: an array of stats, or a 202 with a body
+    # the document declines to describe.
+    it "is untyped when the document left one of them open" do
+      generate(two_successes("{}")) do |_, dir|
+        signature = File.read(File.join(dir, "refused.rbs"))[/def create_user: .*/]
+        expect(signature).to end_with("-> untyped")
+        expect(File.read(File.join(dir, "client.rb"))).to include("202 => :any")
+      end
+    end
+  end
+
+  # `def find(until: nil)` is a method Ruby will define; `def find(until)` is
+  # a file it will not read. So the one that can keep the document's name does.
+  describe "a parameter named for a Ruby keyword" do
+    def with_keyword(where)
+      document(<<~YAML)
+        operationId: listThings
+        parameters:
+          - { name: until, in: #{where}, required: true, schema: { type: string } }
+        responses: { "200": { description: ok } }
+      YAML
+    end
+
+    it "keeps the name when it is a query parameter" do
+      generate(with_keyword("query")) do |emitter, dir|
+        expect(emitter.refusals).to be_empty
+        expect(File.read(File.join(dir, "client.rb"))).to include("query: %i[until!]")
+        expect(File.read(File.join(dir, "refused.rbs"))).to include("def list_things: (until: String) ->")
+      end
+    end
+
+    it "keeps it when it is a header parameter" do
+      generate(with_keyword("header")) do |emitter, dir|
+        expect(emitter.refusals).to be_empty
+        expect(File.read(File.join(dir, "client.rb"))).to include(%(header: { "until" => :until! }))
+      end
+    end
+
+    # A URL's segments are ordered, so a path parameter is positional, and a
+    # positional argument cannot be called this at all.
+    it "is refused when it is a path parameter" do
+      emitter = generate(spec(<<~YAML))
+        /things/{until}:
+          get:
+            operationId: getThing
+            parameters:
+              - { name: until, in: path, required: true, schema: { type: string } }
+            responses: { "200": { description: ok } }
+      YAML
+      expect(emitter.refusals.first.reason).to include("which a positional argument cannot be")
+    end
+  end
+
+  # A text body is a String sent as it stands. What the generator will not do
+  # is decide that some other shape can be spelled as one.
+  describe "a request body that is text" do
+    def sending(content)
+      document(<<~YAML).sub("get:", "post:")
+        operationId: renderThing
+        requestBody: { required: true, content: #{content} }
+        responses: { "200": { description: ok } }
+      YAML
+    end
+
+    let(:string) { "{ schema: { type: string } }" }
+
+    it "is sent under the media type the document named" do
+      generate(sending("{ text/x-markdown: #{string} }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb")))
+          .to include(%(body: :text, content_type: "text/x-markdown"))
+      end
+    end
+
+    it "is typed as a String" do
+      generate(sending("{ text/plain: #{string} }")) do |_, dir|
+        expect(File.read(File.join(dir, "refused.rbs"))).to include("def render_thing: (String body)")
+      end
+    end
+
+    # GitHub's markdown endpoint takes text/plain and text/x-markdown for the
+    # same string. The schemas differ only in the header, and the caller has
+    # no way to say which, so the first is used and the rest are reported.
+    it "takes the first of several, and says which" do
+      emitter = generate(sending("{ text/plain: #{string}, text/x-markdown: #{string} }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb"))).to include(%(content_type: "text/plain"))
+      end
+      expect(emitter.notes).to include(a_string_including("sent as text/plain, of text/plain, text/x-markdown"))
+    end
+
+    # An object under text/csv is an encoding this generator does not know,
+    # and passing the model through would send its #to_s.
+    it "is refused when the document says it is not a string" do
+      emitter = generate(sending("{ text/csv: { schema: { type: object, properties: { a: { type: string } } } } }"))
+      expect(emitter.refusals.first.reason).to include("request body is text/csv")
     end
   end
 

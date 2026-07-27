@@ -140,6 +140,24 @@ A bare IO is wrapped in a `Keiyaku::Upload`, taking its filename from the path;
 construct one yourself to set the filename or content type. An array property
 becomes one part per element.
 
+A body the document describes as text goes out as it stands, under the media
+type the document named, and so does a binary one — neither is JSON, and the
+only thing the generator has to know is what to put in the header.
+
+An operation whose statuses are different types is all of them. GitHub answers
+a request for a repository's contributor stats with the stats, or with a 202
+meaning it is still counting; the document says which type belongs to which
+status and the response carries the status, so nothing has to be guessed:
+
+```ruby
+post :import_widgets, "/widgets/import", body: :text, content_type: "text/csv",
+     into: Keiyaku::ByStatus[200 => [Widget], 202 => ImportQueued]
+```
+
+and the RBS returns `(Array[Widget] | ImportQueued)`, which is a caller that
+has to look. A status the document did not describe is passed through undecoded
+rather than cast into a type the server never claimed to be sending.
+
 Pagination is declared in the document, because OpenAPI has no way to describe
 it and a parameter named `page` is not evidence of anything:
 
@@ -202,8 +220,8 @@ Calling one raises Keiyaku::Unsupported. Write those by hand.
 
 What it refuses is anything where the generated code would be a guess: a name
 Ruby will not take or that two things want at once, a `$ref` into a file it
-cannot see, success responses that do not agree on a type, a security scheme
-it has no way to send. Then, because the mistakes it does not know to look for
+cannot see, a body in an encoding it does not know, a security scheme it has
+no way to send. Then, because the mistakes it does not know to look for
 are still in the file it wrote, it reads that file back in another process and
 reports what will not load as a bug in itself.
 
@@ -259,12 +277,12 @@ so far came from pointing it at that file rather than at the two below.
 
 ## Tests
 
-`rake` regenerates the examples, validates their RBS, and runs the specs — 135
+`rake` regenerates the examples, validates their RBS, and runs the specs — 166
 RSpec examples covering name mapping in both directions, nested and array
 models, pattern matching, query array explosion, header parameters overriding
-credentials, per-operation security, typed error bodies, binary and multipart
-request bodies, discriminated unions, all four pagination strategies, and cast
-errors naming the offending field.
+credentials, per-operation security, typed error bodies, binary, text and
+multipart request bodies, discriminated unions, responses cast by their status,
+all four pagination strategies, and cast errors naming the offending field.
 
 Nothing is stubbed. The generated clients talk to a real HTTP server on a real
 socket ([`spec/support/test_server.rb`](spec/support/test_server.rb)), which
@@ -276,7 +294,11 @@ outstanding requests, so none of them depends on another having run first.
 A second document, [`examples/widgets.yaml`](examples/widgets.yaml), exists to
 keep the generator honest about not being fitted to the Petstore: OAS 3.1,
 bearer auth, a `default` error response, and JSON fields that are already
-snake_case (which the camelCase convention would otherwise guess wrong).
+snake_case (which the camelCase convention would otherwise guess wrong). Its
+`POST /widgets/import` holds the three things a document is entitled to say
+and Ruby is awkward about — a text body, a parameter called `until`, and two
+success statuses that are two types — because each of them was a refusal until
+GitHub's document turned one up.
 
 A third, [`examples/sidecar.json`](examples/sidecar.json), was not written for
 this at all — see above. Its client is generated and its RBS validated on every

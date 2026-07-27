@@ -12,6 +12,7 @@ module Widgets
     post   :create_widget, "/widgets", body: Widget, into: Widget, errors: { 422 => Problem }
     get    :get_widget, "/widgets/{id}", into: Widget, errors: { :default => Problem }
     post   :upload_photo, "/widgets/{id}/photo", multipart: UploadPhotoBody, into: Widget
+    post   :import_widgets, "/widgets/import", query: %i[until], body: :text, content_type: "text/csv", into: Keiyaku::ByStatus[200 => [Widget], 202 => ImportQueued]
     get    :search_widgets, "/widgets/search", query: %i[q! cursor], into: SearchWidgetsResult, paginate: { by: :cursor, param: "cursor", next: "next_cursor", items: "items" }
     get    :widget_feed, "/widgets/feed", into: [Widget], paginate: { by: :link }
     get    :list_events, "/widgets/{id}/events", query: %i[limit offset], into: [Event], paginate: { by: :offset, param: "offset", size: "limit", per: 2 }

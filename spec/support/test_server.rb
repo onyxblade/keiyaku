@@ -98,6 +98,11 @@ module TestServer
       in ["GET", "/v1/widgets/2"] then [500, { "detail" => "boom", "trace_id" => "t-1" }]
       in ["POST", "/v1/widgets"] then [422, { "detail" => "that id is taken", "source" => "id" }]
       in ["POST", "/v1/widgets/1/photo"] then [200, WIDGET.(1)]
+
+      # Answers with the widgets, or with a job when there are too many to do
+      # now: two statuses, two types, and the client has to tell them apart.
+      in ["POST", "/v1/widgets/import"] then
+        request.body.lines.size > 2 ? [202, { "job_id" => "j-1" }] : [200, [WIDGET.(1)]]
       in ["GET", "/v1/widgets/1/events"] then
         [200, [{ "kind" => "created",
                  "widget" => { "id" => 1, "created_at" => "2026-07-26T10:00:00Z" } },

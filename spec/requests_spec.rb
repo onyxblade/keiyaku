@@ -89,6 +89,19 @@ RSpec.describe "building a request" do
       petstore.delete_pet(5, api_key: "override")
       expect(sent.headers["api_key"]).to eq "override"
     end
+
+    # `def import(until: nil)` is a method Ruby will define, and `until` in
+    # its body is the start of a loop rather than the argument. Renaming it
+    # would send a parameter the document never described.
+    it "sends one named after a Ruby keyword under the document's name" do
+      widgets.import_widgets("id\n1\n", until: Time.utc(2026, 7, 26))
+      expect(sent.query).to eq({ "until" => "2026-07-26T00:00:00Z" })
+    end
+
+    it "leaves it out when it is not given" do
+      widgets.import_widgets("id\n1\n")
+      expect(sent.query).to be_empty
+    end
   end
 
   it "sends bearer credentials" do
@@ -114,6 +127,25 @@ RSpec.describe "building a request" do
 
     it "decodes the response" do
       expect(response).to be_a(Petstore::ApiResponse)
+    end
+  end
+
+  # A body the document describes as text goes out as it stands, like a binary
+  # one; the media type is the only difference, and the document names it.
+  describe "a text body" do
+    let!(:response) { widgets.import_widgets("id,label\n1,prod\n") }
+    let(:request) { sent }
+
+    it "sends the string untouched" do
+      expect(request.body).to eq "id,label\n1,prod\n"
+    end
+
+    it "types it as the media type the document listed first" do
+      expect(request.content_type).to eq "text/csv"
+    end
+
+    it "decodes the response" do
+      expect(response).to eq [Widgets::Widget.new(id: 1, created_at: Time.utc(2026, 7, 26, 10))]
     end
   end
 end

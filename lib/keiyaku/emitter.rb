@@ -15,11 +15,9 @@ module Keiyaku
 
     IDENTIFIER = /\A[a-z_][a-zA-Z0-9_]*\z/
 
-    KEYWORDS = %w[
-      BEGIN END alias and begin break case class def defined do else elsif end ensure false for if in module
-      next nil not or redo rescue retry return self super then true undef unless until when while yield __FILE__
-      __LINE__ __ENCODING__
-    ].freeze
+    # KEYWORDS is Keiyaku's rather than this table's, because the runtime
+    # needs the same list: a parameter may be named for one, and the generated
+    # method body then has to read it back out of its binding.
 
     # Names the generated client needs for itself. `def class` is legal Ruby
     # and overrides the method every lookup in the runtime goes through, which
@@ -75,12 +73,18 @@ module Keiyaku
     end
 
     # A parameter becomes an argument of the generated method, which is a
-    # local: it may shadow a method without harm, but it may not be a keyword,
-    # since `def find(class:)` is a file Ruby will not read.
-    def parameter(name)
+    # local: it may shadow a method without harm. A keyword it may be too,
+    # but only where the argument is one — `def find(until: nil)` is a method
+    # Ruby will define and `def find(until)` is a file it will not read. So a
+    # query or header parameter keeps the document's name and the runtime
+    # reads it out of the binding, and a path parameter, which is positional
+    # because a URL's segments are ordered, is refused.
+    def parameter(name, positional: false)
       ruby = Keiyaku.snake(name)
       raise Impossible, "parameter #{name.inspect} cannot be a Ruby argument name" unless ruby.match?(IDENTIFIER)
-      raise Impossible, "parameter #{name.inspect} is a Ruby keyword" if KEYWORDS.include?(ruby)
+      if positional && KEYWORDS.include?(ruby)
+        raise Impossible, "path parameter #{name.inspect} is a Ruby keyword, which a positional argument cannot be"
+      end
 
       ruby
     end
@@ -719,6 +723,16 @@ module Keiyaku
         elsif binary
           body = ":binary"
           content_type = binary
+        elsif (text = content.keys.find { _1.start_with?("text/") && text_schema?(content[_1]["schema"]) })
+          # A text body is a String sent as it stands, which is what the
+          # binary case already does; the media type is the only difference,
+          # and the document names it. Where it names several — GitHub's
+          # markdown endpoint takes text/plain and text/x-markdown — the
+          # first is used and the rest are reported, since the schemas differ
+          # only in the header and the caller has no way to say which.
+          @notes << "#{name}: request body is sent as #{text}, of #{content.keys.join(", ")}" if content.size > 1
+          body = ":text"
+          content_type = text
         else
           raise Impossible, "request body is #{content.keys.join(", ")}"
         end
@@ -727,26 +741,31 @@ module Keiyaku
       # The method's own arguments, which is where two parameter names that
       # normalise to one show up: Ruby would take `foo-bar` and `foo_bar` as
       # one keyword written twice, and refuse to parse the file.
-      arguments = template.scan(/\{(\w+)\}/).flatten.map { Names.parameter(_1) }
+      arguments = template.scan(/\{(\w+)\}/).flatten.map { Names.parameter(_1, positional: true) }
       arguments << "body" if body || form || multipart
       arguments += query.map { Names.parameter(_1.delete_suffix("!")) } + header.values.map { _1.delete_suffix("!") }
       if (duplicate = arguments.tally.find { |_, count| count > 1 })
         raise Impossible, "two of its parameters are both called #{duplicate.first}"
       end
 
-      into, errors = responses(op, name, deps)
+      success, errors = responses(op, name, deps)
+      into = success.empty? ? nil : success
 
       { name:, verb:, template:, query:, header:, types:, body:, form:, multipart:, content_type:, into:,
         errors:, hint:, paginate: (hint && hash_source(hint)),
         security: security_source(security_for(name, op)), summary: op["summary"], deps: }
     end
 
-    # One method has one return type, so several success responses have to
-    # agree on it. Where they do not, the alternative to refusing is a method
-    # that casts a 202's job into the 200's user and hands back a model whose
-    # every field is nil.
+    # Every success response the document described, by its status. Several of
+    # them are several types, and one method returns one value — but nothing
+    # has to be guessed to reconcile that, because the document says which
+    # type belongs to which status and the response carries the status. GitHub
+    # answers a request for a repository's contributor stats with the stats or
+    # with a 202 meaning it is still counting them; both are the operation's
+    # answer, and casting the second into the first's type is what would need
+    # excusing.
     def responses(op, name, deps)
-      into, errors, success = nil, {}, {}
+      errors, success = {}, {}
 
       (op["responses"] || {}).each do |status, response|
         content = resolve(response)["content"] || {}
@@ -765,12 +784,10 @@ module Keiyaku
         end
       end
 
-      if success.values.uniq.size > 1
-        raise Impossible, "its success responses do not agree on a type " \
-                          "(#{success.map { |status, type| "#{status} is #{type}" }.join(", ")})"
-      end
-
-      [success.values.first, errors]
+      # Two statuses that turned out to be the same type are one answer, not a
+      # table to consult at runtime.
+      success = success.first(1).to_h if success.values.uniq.size == 1
+      [success, errors]
     end
 
     # A hint that names a parameter the operation does not have would produce a
@@ -793,6 +810,15 @@ module Keiyaku
 
     def hash_source(hint)
       "{ #{hint.map { |key, value| "#{key}: #{key == "by" ? ":#{value}" : value.inspect}" }.join(", ")} }"
+    end
+
+    # Whether a text/* body is the string it looks like. A document declaring
+    # an object under text/csv means an encoding this generator does not know,
+    # and passing the model through as the body would send its #to_s.
+    def text_schema?(schema)
+      kind = merge_all_of(resolve(schema || {}))["type"]
+      kind = Array(kind) - ["null"] unless kind.nil?
+      kind.nil? || kind == ["string"]
     end
 
     # A multipart body always gets its own type, even where the document points
@@ -902,7 +928,7 @@ module Keiyaku
         args << "form: #{op[:form]}" if op[:form]
         args << "multipart: #{op[:multipart]}" if op[:multipart]
         args << "content_type: #{op[:content_type].inspect}" if op[:content_type]
-        args << "into: #{op[:into]}" if op[:into]
+        args << "into: #{into_source(op[:into])}" if op[:into]
         args << "errors: { #{op[:errors].map { |status, type| "#{status} => #{type}" }.join(", ")} }" if op[:errors].any?
         args << "paginate: #{op[:paginate]}" if op[:paginate]
         args << "security: #{op[:security]}" if op[:security]
@@ -944,7 +970,7 @@ module Keiyaku
     end
 
     RBS_SCALARS = {
-      ":bool" => "bool", ":any" => "untyped", ":binary" => "String",
+      ":bool" => "bool", ":any" => "untyped", ":binary" => "String", ":text" => "String",
       ":upload" => "Keiyaku::Upload | IO"
     }.freeze
 
@@ -979,10 +1005,30 @@ module Keiyaku
       type
     end
 
+    # The operation's `into:`. One success response is the type itself; several
+    # are a table for the runtime to read the status against.
+    def into_source(into)
+      return into.values.first if into.size == 1
+
+      "Keiyaku::ByStatus[#{into.map { |status, type| "#{status} => #{type}" }.join(", ")}]"
+    end
+
+    # And how that reads as a return type. `untyped` in a union says nothing
+    # the union did not already say and takes the rest of it down with it, so
+    # an operation with one response the document left open is that: untyped.
+    def into_rbs(into)
+      types = into.values.uniq.map { rbs_type(_1) }
+      types.include?("untyped") ? "untyped" : types.join(" | ")
+    end
+
     # What the enumerator yields: the element of the array being paged over,
     # which is either the response itself or a field of the envelope.
     def paginate_element(op)
-      source = op[:into]
+      # A page is one shape; an operation whose statuses disagree is not one
+      # this can name, and pagination over it would be walking two types.
+      return "untyped" unless op[:into]&.size == 1
+
+      source = op[:into].values.first
       if (items = op[:hint]["items"])
         model = @models[source]
         return "untyped" unless model.is_a?(Model)
@@ -1060,7 +1106,7 @@ module Keiyaku
         keywords = op[:query].map { keyword.(_1.delete_suffix("!"), _1) } +
                    op[:header].map { |json, ruby| keyword.(json, ruby) }
         arguments = (positional + keywords).join(", ")
-        signature = "    def #{op[:name]}: (#{arguments}) -> #{op[:into] ? rbs_return(rbs_type(op[:into])) : "untyped"}"
+        signature = "    def #{op[:name]}: (#{arguments}) -> #{op[:into] ? rbs_return(into_rbs(op[:into])) : "untyped"}"
         next signature unless op[:paginate]
 
         element = paginate_element(op)
