@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "bundler/gem_tasks"
+require "rspec/core/rake_task"
 
 EXAMPLES = { "petstore" => "Petstore", "widgets" => "Widgets" }.freeze
 
@@ -26,8 +27,6 @@ task :rbs do
 end
 
 desc "Drive the generated clients against a real socket"
-task :test do
-  sh "ruby test/e2e.rb"
-end
+RSpec::Core::RakeTask.new(:spec)
 
-task default: %i[examples rbs test]
+task default: %i[examples rbs spec]

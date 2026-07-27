@@ -190,21 +190,28 @@ Calling one raises Keiyaku::Unsupported. Write those by hand.
 
 ## Tests
 
-`rake` regenerates the examples, validates their RBS, and runs `test/e2e.rb`,
-which drives the generated clients against a real socket — 53 checks covering
-name mapping in both directions, nested and array models, pattern matching,
-query array explosion, header parameters overriding credentials, typed error
-bodies, binary and multipart request bodies, discriminated unions, all four
-pagination strategies, and cast errors naming the offending field.
+`rake` regenerates the examples, validates their RBS, and runs the specs — 73
+RSpec examples covering name mapping in both directions, nested and array
+models, pattern matching, query array explosion, header parameters overriding
+credentials, typed error bodies, binary and multipart request bodies,
+discriminated unions, all four pagination strategies, and cast errors naming
+the offending field.
 
-A second spec, [`examples/widgets.yaml`](examples/widgets.yaml), exists to keep
-the generator honest about not being fitted to the Petstore: OAS 3.1, bearer
-auth, a `default` error response, and JSON fields that are already snake_case
-(which the camelCase convention would otherwise guess wrong).
+Nothing is stubbed. The generated clients talk to a real HTTP server on a real
+socket ([`spec/support/test_server.rb`](spec/support/test_server.rb)), which
+also records what it was sent, so an example can assert on the request as well
+as the response. A stubbed adapter would only agree with whatever the runtime
+happened to do. The examples run in random order and each one starts with no
+outstanding requests, so none of them depends on another having run first.
+
+A second document, [`examples/widgets.yaml`](examples/widgets.yaml), exists to
+keep the generator honest about not being fitted to the Petstore: OAS 3.1,
+bearer auth, a `default` error response, and JSON fields that are already
+snake_case (which the camelCase convention would otherwise guess wrong).
 
 The optional adapters are covered by the same suite, over the same socket, when
-faraday and http.rb happen to be installed. They are skipped otherwise, since
-neither is a dependency.
+faraday and http.rb happen to be installed. They are marked pending otherwise,
+since neither is a dependency.
 
 ## Not done yet
 
