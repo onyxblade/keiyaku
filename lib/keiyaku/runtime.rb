@@ -125,6 +125,20 @@ module Keiyaku
         super(**members.to_h { |m| [m, kw[m]] })
       end
 
+      # How a field is read when its name is not one Ruby will take through a
+      # dot: GitHub counts thumbs-up reactions in a property called `+1`, and
+      # renaming it here would be inventing a name the document never used.
+      # Ordinary fields answer to it too, so nothing has to know which is
+      # which. A name the model does not have is a typo rather than a nil.
+      def [](name)
+        field = name.to_sym
+        unless self.class.members.include?(field)
+          raise ArgumentError, "#{self.class} has no field #{name.inspect}"
+        end
+
+        public_send(field)
+      end
+
       def to_json_hash
         self.class.json_names.filter_map do |name, json|
           value = public_send(name)

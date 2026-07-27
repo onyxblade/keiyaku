@@ -34,7 +34,11 @@ module Keiyaku
     # is. A property taking one of those names leaves the model unable to do
     # its job — unlike, say, one called `hash`, which plenty of real documents
     # have and which costs only the model's use as a Hash key.
-    MODEL_METHODS = %w[class with to_h members deconstruct deconstruct_keys to_json to_json_hash].freeze
+    #
+    # `members` is not among them. The runtime asks the class for its members
+    # and never the instance, so a property of that name shadows a method
+    # nothing calls — and GitHub's AppPermissions has one.
+    MODEL_METHODS = %w[class with to_h deconstruct deconstruct_keys to_json to_json_hash].freeze
 
     # The constants the generated files actually spend, and no more. `Client`
     # is the class itself; `String` and the rest are what every other model's
@@ -85,13 +89,32 @@ module Keiyaku
     # Hash key written as a label. Both take a keyword: `{ end: String }` and
     # `range.end` are ordinary Ruby, and a date range is not an unusual shape
     # for a document to have. Only the names below are actually spent.
+    #
+    # A name Ruby will not take as an identifier keeps the one the document
+    # gave it — GitHub counts its reactions in properties called `+1` and
+    # `-1`. A Data member may be called that: it casts, round-trips, copies
+    # with `with` and pattern matches as `in { "+1": n }`. The one thing it
+    # cannot do is be reached through a dot, so `model["+1"]` is how it is
+    # read, and the RBS types that rather than an attr_reader. Renaming it to
+    # something dot-shaped would mean inventing a name the document never
+    # used, which is the guess this generator exists not to make.
+    #
+    # The test is the first character rather than the result, because snake
+    # drops what it cannot use: `+1` survives it as `1`, which is refused, but
+    # `-1` survives as `_1`, which is a perfectly good identifier for a field
+    # that has nothing to do with negative one. Both belong to the same
+    # schema, and a model reading `rollup["+1"]` beside `rollup._1` would be
+    # the generator having translated one of them and mangled the other.
     def field(name)
       ruby = Keiyaku.snake(name)
-      raise Impossible, "property #{name.inspect} cannot be a Ruby method name" unless ruby.match?(IDENTIFIER)
+      return name.to_s if !name.match?(/\A[a-zA-Z_]/) || !ruby.match?(IDENTIFIER)
       raise Impossible, "property #{name.inspect} is a method the model needs" if MODEL_METHODS.include?(ruby)
 
       ruby
     end
+
+    # Whether a field can be written as a bare label, in Ruby and in RBS both.
+    def bare?(field) = field.match?(IDENTIFIER)
   end
 
   # Raised while translating something the generator cannot translate
@@ -286,6 +309,28 @@ module Keiyaku
         return
       end
 
+      # Nor is a component that is not an object at all. GitHub has ninety-odd
+      # — `author-association` is a string with an enum, `alert-number` an
+      # integer — and a Data with no fields casts nothing, so a $ref to one
+      # produced a client that loaded, typechecked, and then raised on the
+      # first response that carried the field. It becomes the type it says it
+      # is, the way the union branch above becomes the union it is.
+      kind = schema["type"]
+      kind = kind - ["null"] if kind.is_a?(Array)
+      unless kind.nil? || Array(kind).include?("object") || schema["properties"]
+        deps = []
+        # An array component and the object inside it are two types, and the
+        # document named only one of them. Hoisting the element under the
+        # component's own name gets `Widgets = [Widgets]`, so the element is
+        # named for being the element.
+        context = Array(kind).include?("array") ? "#{const} item" : const
+        source = type_for(schema, context, deps)
+        @models[const] = source
+        @unions[const] = rbs_type(source)
+        @deps[const] = deps.uniq - [const]
+        return
+      end
+
       deps = []
       @models[const] = build_model(const, schema, deps, upload:)
       @deps[const] = deps.uniq - [const]
@@ -350,7 +395,17 @@ module Keiyaku
         return source
       end
 
-      case schema["type"]
+      # `type: [string, null]` is 3.1's other way of saying a field may be
+      # null, and means the same as the `anyOf` spelling collapsed above: the
+      # field is a string. More than one type left after dropping null is a
+      # real union with nothing to dispatch on, so it falls through to :any
+      # rather than picking whichever came first.
+      kind = schema["type"]
+      if kind.is_a?(Array) && (rest = kind - ["null"]).size == 1
+        kind = rest.first
+      end
+
+      case kind
       when "array"
         # A tuple — `items` as a list in draft-07, `prefixItems` in 2020-12 —
         # is a fixed-length heterogeneous array, which one element type cannot
@@ -373,11 +428,11 @@ module Keiyaku
           ":any"
         end
       else
-        format = [schema["type"], schema["format"]].compact
+        format = [kind, schema["format"]].compact
         if upload && format == %w[string binary]
           ":upload"
         else
-          SCALARS[format] || SCALARS[[schema["type"]]] || ":any"
+          SCALARS[format] || SCALARS[[kind]] || ":any"
         end
       end
     end
@@ -788,10 +843,14 @@ module Keiyaku
     # The fields go in a Hash of their own rather than as keywords beside
     # `required:` and `from:`, because they are the API's names and not ours:
     # a DIDComm message has a property called `from`.
+    # A field that is not an identifier is still a Hash label, in quotes:
+    # `{ "+1": Integer }` is the same Hash as `{ :"+1" => Integer }`.
+    def label(field) = Names.bare?(field) ? field : field.inspect
+
     def model_options(model)
       options = []
       options << "required: %i[#{model.required.join(" ")}]" if model.required.any?
-      options << "from: { #{model.from.map { |field, json| "#{field}: #{json.inspect}" }.join(", ")} }" if model.from.any?
+      options << "from: { #{model.from.map { |field, json| "#{label(field)}: #{json.inspect}" }.join(", ")} }" if model.from.any?
       options
     end
 
@@ -811,7 +870,7 @@ module Keiyaku
         defined << const
         next "  #{const} = #{model}" if model.is_a?(String)
 
-        fields = model.fields.map { |field, type| "#{field}: #{lazily(type, defined - [const])}" }
+        fields = model.fields.map { |field, type| "#{label(field)}: #{lazily(type, defined - [const])}" }
         options = model_options(model).map { ", #{_1}" }.join
         one_line = "  #{const} = Keiyaku.model({ #{fields.join(", ")} }#{options})"
         next one_line if one_line.length <= 110
@@ -898,10 +957,26 @@ module Keiyaku
 
       # A named union is referred to by its alias; an inline one is spelled out.
       if (expansion = @unions[source])
-        return source.start_with?("Keiyaku::OneOf[") ? expansion : Keiyaku.snake(source)
+        return source.start_with?("Keiyaku::OneOf[") ? expand_union(expansion) : Keiyaku.snake(source)
       end
 
       RBS_SCALARS[source] || source
+    end
+
+    # A union is written bare everywhere but one place: RBS reads `|` after a
+    # return type as the start of another overload, so `-> A | B` is a syntax
+    # error where `attr_reader a: A | B` is fine. Only a top-level `|` needs
+    # the parentheses — inside `Array[...]` the brackets already close it off.
+    def rbs_return(type)
+      depth = 0
+      type.each_char do |char|
+        case char
+        when "[" then depth += 1
+        when "]" then depth -= 1
+        when "|" then return "(#{type})" if depth.zero?
+        end
+      end
+      type
     end
 
     # What the enumerator yields: the element of the array being paged over,
@@ -929,7 +1004,15 @@ module Keiyaku
         else "untyped" # a union that collapsed to one type, so the constant is that type
         end
 
-      "  type #{Keiyaku.snake(const)} = #{@unions[const]}\n  #{const}: #{constant}"
+      "  type #{Keiyaku.snake(const)} = #{expand_union(@unions[const])}\n  #{const}: #{constant}"
+    end
+
+    # A variant of a union may be a component that turned out not to be a
+    # class — an array, a scalar — and RBS refers to one of those by its type
+    # alias. The constant is still there, but it holds a value rather than
+    # naming a type, so a signature that used it would not resolve.
+    def expand_union(expansion)
+      expansion.split(" | ").map { |name| @models[name].is_a?(String) ? Keiyaku.snake(name) : name }.join(" | ")
     end
 
     def rbs_source(operations)
@@ -937,8 +1020,17 @@ module Keiyaku
         model = @models[const]
         next union_rbs(const) if model.is_a?(String)
 
-        readers = model.fields.map do |field, type|
-          "    attr_reader #{field}: #{rbs_type(type)}#{"?" unless model.required.include?(field)}"
+        # `attr_reader "+1":` is not RBS, in either spelling — the name is not
+        # a method, so it is typed where it is actually read instead.
+        bare, quoted = model.fields.partition { |field, _| Names.bare?(field) }
+        declared = lambda do |field, type|
+          "#{rbs_type(type)}#{"?" unless model.required.include?(field)}"
+        end
+
+        readers = bare.map { |field, type| "    attr_reader #{field}: #{declared.(field, type)}" }
+        unless quoted.empty?
+          overloads = quoted.map { |field, type| "(#{field.inspect}) -> #{declared.(field, type)}" }
+          readers << "    def []: #{overloads.join("\n           | ")}"
         end
         <<~RBS.chomp
             class #{const} < ::Data
@@ -968,7 +1060,7 @@ module Keiyaku
         keywords = op[:query].map { keyword.(_1.delete_suffix("!"), _1) } +
                    op[:header].map { |json, ruby| keyword.(json, ruby) }
         arguments = (positional + keywords).join(", ")
-        signature = "    def #{op[:name]}: (#{arguments}) -> #{op[:into] ? rbs_type(op[:into]) : "untyped"}"
+        signature = "    def #{op[:name]}: (#{arguments}) -> #{op[:into] ? rbs_return(rbs_type(op[:into])) : "untyped"}"
         next signature unless op[:paginate]
 
         element = paginate_element(op)

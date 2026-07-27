@@ -115,6 +115,142 @@ RSpec.describe Keiyaku::Emitter do
     end
   end
 
+  # A property Ruby will not take through a dot keeps the name the document
+  # gave it: GitHub counts reactions in `+1` and `-1`. Renaming them would be
+  # inventing names the document never used.
+  describe "a property that cannot be a Ruby method name" do
+    let(:reactions) do
+      document(<<~YAML)
+        operationId: getRollup
+        responses:
+          "200":
+            description: ok
+            content:
+              application/json:
+                schema:
+                  type: object
+                  required: ["+1", "-1", total]
+                  properties:
+                    "+1": { type: integer }
+                    "-1": { type: integer }
+                    total: { type: integer }
+      YAML
+    end
+
+    after { Object.send(:remove_const, :Reacted) if Object.const_defined?(:Reacted) }
+
+    it "keeps the document's name rather than mangling it" do
+      generate(reactions, namespace: "Reacted") { |_, dir| load File.join(dir, "types.rb") }
+
+      expect(Reacted::GetRollupResult.members).to eq [:"+1", :"-1", :total]
+    end
+
+    # snake drops the sign, so `-1` would otherwise pass as `_1` — a valid
+    # identifier for a field that has nothing to do with it, sitting beside a
+    # `+1` that was refused outright.
+    it "does not let one of a pair through as an identifier" do
+      emitter = generate(reactions)
+      expect(emitter.refusals).to be_empty
+      expect(emitter.notes).to be_empty
+    end
+
+    it "reads through [], casts and round-trips" do
+      generate(reactions, namespace: "Reacted") { |_, dir| load File.join(dir, "types.rb") }
+      rollup = Reacted::GetRollupResult.cast({ "+1" => 3, "-1" => 1, "total" => 4 })
+
+      expect(rollup["+1"]).to eq 3
+      expect(rollup["-1"]).to eq 1
+      expect(rollup[:total]).to eq 4
+      expect(rollup.to_json_hash).to eq({ "+1" => 3, "-1" => 1, "total" => 4 })
+      expect { rollup["+2"] }.to raise_error(ArgumentError, /no field/)
+    end
+
+    # `attr_reader "+1":` is not RBS in either spelling, so the field is typed
+    # where it is actually read.
+    it "types the field on [] rather than on an attr_reader" do
+      generate(reactions) do |_, dir|
+        rbs = File.read(Dir[File.join(dir, "*.rbs")].first)
+        expect(rbs).to include(%(def []: ("+1") -> Integer\n           | ("-1") -> Integer))
+        expect(rbs).to include("attr_reader total: Integer")
+      end
+    end
+  end
+
+  # The runtime asks the class for its members and never the instance, so a
+  # property of that name shadows a method nothing calls.
+  it "keeps a property called members" do
+    emitter = generate(document(<<~YAML))
+      operationId: getPermissions
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  members: { type: string }
+    YAML
+
+    expect(emitter.refusals).to be_empty
+  end
+
+  # A component that is not an object is not a Data subclass. Building one as
+  # a model with no fields casts nothing, so the client loaded and typechecked
+  # and then raised on the first response that carried the field.
+  describe "a component that is not an object" do
+    def component(schema)
+      source = nil
+      generate(<<~YAML) { |_, dir| source = File.read(File.join(dir, "types.rb")) }
+        openapi: 3.1.0
+        info: { title: Refused, version: "1" }
+        servers: [{ url: "https://refused.test" }]
+        paths:
+          /thing:
+            get:
+              operationId: getThing
+              responses:
+                "200":
+                  description: ok
+                  content:
+                    application/json:
+                      schema: { $ref: "#/components/schemas/Named" }
+        components:
+          schemas:
+            Named:
+        #{schema.gsub(/^/, "      ").rstrip}
+      YAML
+      source[/^  Named = (.+)$/, 1]
+    end
+
+    it "is the scalar it says it is" do
+      expect(component("type: string")).to eq "String"
+      expect(component("{ type: integer }")).to eq "Integer"
+      expect(component("{ type: boolean }")).to eq ":bool"
+    end
+
+    it "keeps an enum's type rather than becoming a model with no fields" do
+      expect(component("{ type: string, enum: [A, B] }")).to eq "String"
+    end
+
+    # 3.1's other spelling for a nullable field.
+    it "reads type as a list with null in it" do
+      expect(component('{ type: ["string", "null"] }')).to eq "String"
+    end
+
+    # The array and the object inside it are two types and the document named
+    # one, so `Named = [Named]` is what naming the element after the component
+    # would produce.
+    it "names the element of an array component for being the element" do
+      expect(component(<<~YAML)).to eq "[NamedItem]"
+        type: array
+        items:
+          type: object
+          properties: { id: { type: string } }
+      YAML
+    end
+  end
+
   # A fixed-length heterogeneous array is not something one element type can
   # describe, and taking the first element's would be a guess. Both spellings
   # reach here from real documents: `items` as a list is what TypeBox emits,
@@ -176,6 +312,65 @@ RSpec.describe Keiyaku::Emitter do
           - { type: object, properties: { uri: { type: string } } }
           - { type: string }
       YAML
+    end
+
+    # A discriminated union returned straight out of an operation is spelled
+    # out in the signature rather than behind an alias, and RBS reads the `|`
+    # in `-> A | B` as the start of a second overload. The examples have no
+    # operation shaped like this, so `rake rbs` never had the chance to say so.
+    describe "returned by an operation" do
+      # Written out rather than built with `spec`, which indents everything it
+      # is given under `paths:`; this one needs a `components:` beside them.
+      let(:dispatching) do
+        <<~YAML
+          openapi: 3.1.0
+          info: { title: Refused, version: "1" }
+          servers: [{ url: "https://refused.test" }]
+          paths:
+            /thing:
+              get:
+                operationId: getThing
+                responses:
+                  "200":
+                    description: ok
+                    content:
+                      application/json:
+                        schema:
+                          oneOf:
+                            - { $ref: "#/components/schemas/Cat" }
+                            - { $ref: "#/components/schemas/Dog" }
+                          discriminator:
+                            propertyName: kind
+                            mapping: { cat: "#/components/schemas/Cat", dog: "#/components/schemas/Dog" }
+          components:
+            schemas:
+              Cat: { type: object, properties: { kind: { type: string }, lives: { type: integer } } }
+              Dog: { type: object, properties: { kind: { type: string }, good: { type: boolean } } }
+        YAML
+      end
+
+      it "parenthesises the union in the return type" do
+        generate(dispatching) do |_, dir|
+          signature = File.read(Dir[File.join(dir, "*.rbs")].first)[/def get_thing: .*/]
+          expect(signature).to eq "def get_thing: () -> (Cat | Dog)"
+        end
+      end
+
+      it "emits RBS that parses" do
+        available = begin
+          require "rbs"
+          true
+        rescue LoadError
+          false
+        end
+        skip "rbs is not installed" unless available
+
+        generate(dispatching) do |_, dir|
+          source = Dir[File.join(dir, "*.rbs")].first
+          expect { RBS::Parser.parse_signature(RBS::Buffer.new(name: source, content: File.read(source))) }
+            .not_to raise_error
+        end
+      end
     end
   end
 
