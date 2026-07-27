@@ -1,0 +1,95 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: ruby ${{ matrix.ruby }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # The floor the gemspec declares, everything since, and the current
+        # release. Data.define is what puts the floor at 3.2.
+        ruby: ["3.2", "3.3", "3.4", "4.0"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: ${{ matrix.ruby }}
+          bundler-cache: true
+
+      # Before the specs, because a stale example means the specs are testing
+      # something other than what the generator currently emits.
+      - name: the checked-in examples are what the generator emits today
+        run: bundle exec rake verify
+
+      - name: the generated RBS resolves
+        run: bundle exec rake rbs
+
+      - name: the specs
+        run: bundle exec rake spec
+
+  bare:
+    name: without faraday or http.rb
+    runs-on: ubuntu-latest
+
+    # The adapters are optional, and saying so is worth nothing unless it is
+    # checked: with both gems in every bundle, a stray require in the runtime
+    # would go unnoticed until somebody installed the gem on its own.
+    env:
+      BUNDLE_GEMFILE: ${{ github.workspace }}/gemfiles/bare.gemfile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+          bundler-cache: true
+
+      # No bundler here at all, so nothing but the standard library is on the
+      # load path — including the generator, which the executable pulls in.
+      - name: the runtime and the generator load from the standard library alone
+        run: ruby -Ilib -e 'require "keiyaku"; require "keiyaku/emitter"'
+
+      - name: the specs, with the adapter examples pending rather than failing
+        run: bundle exec rspec
+
+  gem:
+    name: the gem as published
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.2"
+
+      - run: gem build keiyaku.gemspec
+
+      # Built, installed somewhere empty, and driven from outside the checkout,
+      # so what runs is the files the gemspec listed and no others. A file left
+      # off that list works in every job above and fails on first install.
+      - name: install it somewhere empty and generate a client from outside the repo
+        run: |
+          set -euo pipefail
+          export GEM_HOME="$RUNNER_TEMP/gems"
+          export PATH="$GEM_HOME/bin:$PATH"
+          gem install --no-document keiyaku-*.gem
+          cd "$RUNNER_TEMP"
+          keiyaku "$GITHUB_WORKSPACE/examples/petstore.yaml" --module Petstore --out client
+          ruby -e '
+            require "keiyaku"
+            require_relative "client/types"
+            require_relative "client/client"
+            raise "the generated client is not usable" unless
+              Petstore::Client.instance_method(:get_pet_by_id).arity == 1
+          '

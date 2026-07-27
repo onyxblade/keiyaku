@@ -2,5 +2,6 @@
 .bundle/
 .ruby-lsp/
 Gemfile.lock
+*.gemfile.lock
 pkg/
 tmp/

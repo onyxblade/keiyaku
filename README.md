@@ -1,5 +1,7 @@
 # keiyaku
 
+[![ci](https://github.com/onyxblade/keiyaku/actions/workflows/ci.yml/badge.svg)](https://github.com/onyxblade/keiyaku/actions/workflows/ci.yml)
+
 契約 — an OpenAPI-to-Ruby client generator built on the premise that almost
 everything existing generators emit is boilerplate that belongs in a runtime
 library. A spec is a contract; the generated code should be the part of it that
@@ -241,6 +243,15 @@ snake_case (which the camelCase convention would otherwise guess wrong).
 The optional adapters are covered by the same suite, over the same socket, when
 faraday and http.rb happen to be installed. They are marked pending otherwise,
 since neither is a dependency.
+
+Saying they are optional is worth nothing unless something checks it, so CI
+runs the suite a second time against
+[`gemfiles/bare.gemfile`](gemfiles/bare.gemfile), which carries neither gem: a
+stray `require` in the runtime fails there rather than on somebody's first
+install. A third job builds the gem, installs it into an empty prefix, and
+generates a client from outside the checkout — nothing from the working tree is
+on the load path, which is what catches a file the gemspec forgot to list. The
+matrix runs 3.2, the floor `Data.define` puts the gemspec at, through 4.0.
 
 ## Not done yet
 
