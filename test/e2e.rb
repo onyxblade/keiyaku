@@ -131,7 +131,7 @@ end
 
 check("maps 4xx to an exception") do
   client.get_pet_by_id(999)
-rescue OpenAPI::ClientError => e
+rescue Keiyaku::ClientError => e
   SEEN.pop
   # This spec documents no schema for 404, so the body stays undecoded.
   e.status == 404 && e.parsed["message"] == "Pet not found"
@@ -148,13 +148,13 @@ end
 
 check("a bad payload names the field") do
   Petstore::Pet.cast({ "name" => "x", "photoUrls" => [], "id" => "not-a-number" })
-rescue OpenAPI::CastError => e
+rescue Keiyaku::CastError => e
   e.message.include?("Petstore::Pet.id")
 end
 
 check("a missing required field is caught") do
   Petstore::Pet.cast({ "id" => 1 })
-rescue OpenAPI::CastError => e
+rescue Keiyaku::CastError => e
   e.message.include?("missing required field")
 end
 
@@ -173,21 +173,21 @@ check("sends bearer credentials") { sent[:headers]["authorization"] == "Bearer t
 
 check("casts a documented 4xx body") do
   widgets.create_widget(Widgets::Widget.new(id: 1, created_at: Time.now))
-rescue OpenAPI::ClientError => e
+rescue Keiyaku::ClientError => e
   SEEN.pop
   e.parsed.is_a?(Widgets::Problem) && e.parsed.detail == "that id is taken"
 end
 
 check("casts a default error body, and 5xx is a ServerError") do
   widgets.get_widget(2)
-rescue OpenAPI::ServerError => e
+rescue Keiyaku::ServerError => e
   SEEN.pop
   e.parsed.is_a?(Widgets::Problem) && e.parsed.trace_id == "t-1"
 end
 
 check("refuses a deepObject parameter") do
   widgets.list_widgets
-rescue OpenAPI::Unsupported => e
+rescue Keiyaku::Unsupported => e
   e.message.include?("deepObject")
 end
 

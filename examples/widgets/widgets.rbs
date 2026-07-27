@@ -17,7 +17,7 @@ module Widgets
     def to_json_hash: () -> Hash[String, untyped]
   end
 
-  class Client < OpenAPI::Client
+  class Client < Keiyaku::Client
     def list_widgets: (*untyped) -> bot  # not generated: query parameter filter uses style=deepObject
     def create_widget: (Widget body) -> Widget
     def get_widget: (Integer id) -> Widget

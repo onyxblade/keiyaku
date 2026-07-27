@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 # Generated from the OpenAPI document. Edits will be overwritten.
 
-require "openapi/runtime"
+require "keiyaku/runtime"
 
 module Widgets
-  Widget = OpenAPI.model(
+  Widget = Keiyaku.model(
     id: Integer,
     created_at: Time,
     labels: { String => String },
@@ -12,7 +12,7 @@ module Widgets
     required: %i[id created_at],
     from: { created_at: "created_at" }
   )
-  Problem = OpenAPI.model(
+  Problem = Keiyaku.model(
     detail: String,
     trace_id: String,
     required: %i[detail],

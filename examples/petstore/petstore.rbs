@@ -58,7 +58,7 @@ module Petstore
     def to_json_hash: () -> Hash[String, untyped]
   end
 
-  class Client < OpenAPI::Client
+  class Client < Keiyaku::Client
     def update_pet: (Pet body) -> Pet
     def add_pet: (Pet body) -> Pet
     def find_pets_by_status: (status: String) -> Array[Pet]

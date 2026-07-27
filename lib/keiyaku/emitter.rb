@@ -4,7 +4,7 @@ require "yaml"
 require "json"
 require_relative "runtime"
 
-module OpenAPI
+module Keiyaku
   # Turns an OpenAPI document into three files: value types, a client, and RBS.
   #
   # The guiding rule is that anything it cannot translate faithfully becomes a
@@ -27,7 +27,7 @@ module OpenAPI
     def initialize(path, namespace:)
       @spec = path.end_with?(".json") ? JSON.parse(File.read(path)) : YAML.load_file(path)
       @namespace = namespace
-      @models = {}      # constant name => source for OpenAPI.model(...)
+      @models = {}      # constant name => source for Keiyaku.model(...)
       @deps = {}        # constant name => referenced constant names
       @refusals = []
       @notes = []
@@ -38,7 +38,7 @@ module OpenAPI
       operations = collect_operations
       File.write(File.join(dir, "types.rb"), types_source)
       File.write(File.join(dir, "client.rb"), client_source(operations))
-      File.write(File.join(dir, "#{OpenAPI.snake(@namespace)}.rbs"), rbs_source(operations))
+      File.write(File.join(dir, "#{Keiyaku.snake(@namespace)}.rbs"), rbs_source(operations))
       operations
     end
 
@@ -67,12 +67,12 @@ module OpenAPI
       deps = []
 
       fields = properties.map do |json_name, property|
-        field = OpenAPI.snake(json_name)
+        field = Keiyaku.snake(json_name)
         type = type_for(property, "#{const}.#{field}", deps)
         [field, json_name, type]
       end
 
-      from = fields.filter_map { |field, json, _| "#{field}: #{json.inspect}" if OpenAPI.camelize(field) != json }
+      from = fields.filter_map { |field, json, _| "#{field}: #{json.inspect}" if Keiyaku.camelize(field) != json }
       args = fields.map { |field, _, type| "#{field}: #{type}" }
       args << "required: %i[#{fields.filter_map { |f, j, _| f if required.include?(j) }.join(" ")}]" if required.any?
       args << "from: { #{from.join(", ")} }" if from.any?
@@ -131,7 +131,7 @@ module OpenAPI
 
     # An inline object gets its own type rather than degrading to a bare Hash.
     def hoist(context, schema, deps)
-      const = context.split(/[.\[\]{}]/).reject(&:empty?).map { |part| OpenAPI.camelize(part).sub(/\A./, &:upcase) }.join
+      const = context.split(/[.\[\]{}]/).reject(&:empty?).map { |part| Keiyaku.camelize(part).sub(/\A./, &:upcase) }.join
       return nil if @models.key?(const)
 
       define_model(const, schema)
@@ -166,7 +166,7 @@ module OpenAPI
     end
 
     def build_operation(verb, template, op, inherited_params)
-      name = OpenAPI.snake(op["operationId"] || "#{verb}_#{template.gsub(/[^a-zA-Z0-9]+/, "_")}")
+      name = Keiyaku.snake(op["operationId"] || "#{verb}_#{template.gsub(/[^a-zA-Z0-9]+/, "_")}")
       refuse = ->(reason) { @refusals << Refusal.new(name, reason); return { name:, unsupported: reason } }
       deps = []
 
@@ -176,7 +176,7 @@ module OpenAPI
       params.each do |param|
         style = param["style"] || (param["in"] == "query" ? "form" : "simple")
         explode = param.fetch("explode", style == "form")
-        types[param["name"]] = type_for(param["schema"] || {}, "#{name}_#{OpenAPI.snake(param["name"])}", deps)
+        types[param["name"]] = type_for(param["schema"] || {}, "#{name}_#{Keiyaku.snake(param["name"])}", deps)
 
         case param["in"]
         when "path"
@@ -187,7 +187,7 @@ module OpenAPI
 
           query << "#{param["name"]}#{"!" if param["required"]}"
         when "header"
-          header[param["name"]] = "#{OpenAPI.snake(param["name"])}#{"!" if param["required"]}"
+          header[param["name"]] = "#{Keiyaku.snake(param["name"])}#{"!" if param["required"]}"
         else
           return refuse.("#{param["in"]} parameters are not supported")
         end
@@ -255,17 +255,17 @@ module OpenAPI
     def types_source
       lines = sorted_models.map do |const|
         args = @models[const]
-        one_line = "  #{const} = OpenAPI.model(#{args.join(", ")})"
+        one_line = "  #{const} = Keiyaku.model(#{args.join(", ")})"
         next one_line if one_line.length <= 110
 
-        "  #{const} = OpenAPI.model(\n    #{args.join(",\n    ")}\n  )"
+        "  #{const} = Keiyaku.model(\n    #{args.join(",\n    ")}\n  )"
       end
 
       <<~RUBY
         # frozen_string_literal: true
         # Generated from the OpenAPI document. Edits will be overwritten.
 
-        require "openapi/runtime"
+        require "keiyaku/runtime"
 
         module #{@namespace}
         #{lines.join("\n")}
@@ -297,7 +297,7 @@ module OpenAPI
         require_relative "types"
 
         module #{@namespace}
-          class Client < OpenAPI::Client
+          class Client < Keiyaku::Client
             server #{(@spec.dig("servers", 0, "url") || "").inspect}
         #{"    security(#{@security})\n" if @security}
         #{lines.join("\n")}
@@ -337,14 +337,14 @@ module OpenAPI
 
         types = op[:types]
         positional = op[:template].scan(/\{(\w+)\}/).flatten.map do |param|
-          "#{rbs_type(types[param] || ":any")} #{OpenAPI.snake(param)}"
+          "#{rbs_type(types[param] || ":any")} #{Keiyaku.snake(param)}"
         end
         positional << "#{rbs_type(op[:body] || op[:form])} body" if op[:body] || op[:form]
 
         keyword = lambda do |json_name, declared|
           required = declared.end_with?("!")
           type = rbs_type(types[json_name] || ":any")
-          "#{"?" unless required}#{OpenAPI.snake(declared.delete_suffix("!"))}: #{type}#{"?" unless required}"
+          "#{"?" unless required}#{Keiyaku.snake(declared.delete_suffix("!"))}: #{type}#{"?" unless required}"
         end
         keywords = op[:query].map { keyword.(_1.delete_suffix("!"), _1) } +
                    op[:header].map { |json, ruby| keyword.(json, ruby) }
@@ -357,7 +357,7 @@ module OpenAPI
         module #{@namespace}
         #{models.join("\n\n")}
 
-          class Client < OpenAPI::Client
+          class Client < Keiyaku::Client
         #{methods.join("\n")}
           end
         end

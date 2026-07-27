@@ -1,10 +1,10 @@
 # frozen_string_literal: true
 # Generated from the OpenAPI document. Edits will be overwritten.
 
-require "openapi/runtime"
+require "keiyaku/runtime"
 
 module Petstore
-  Order = OpenAPI.model(
+  Order = Keiyaku.model(
     id: Integer,
     pet_id: Integer,
     quantity: Integer,
@@ -12,8 +12,8 @@ module Petstore
     status: String,
     complete: :bool
   )
-  Category = OpenAPI.model(id: Integer, name: String)
-  User = OpenAPI.model(
+  Category = Keiyaku.model(id: Integer, name: String)
+  User = Keiyaku.model(
     id: Integer,
     username: String,
     first_name: String,
@@ -23,8 +23,8 @@ module Petstore
     phone: String,
     user_status: Integer
   )
-  Tag = OpenAPI.model(id: Integer, name: String)
-  Pet = OpenAPI.model(
+  Tag = Keiyaku.model(id: Integer, name: String)
+  Pet = Keiyaku.model(
     id: Integer,
     name: String,
     category: Category,
@@ -33,5 +33,5 @@ module Petstore
     status: String,
     required: %i[name photo_urls]
   )
-  ApiResponse = OpenAPI.model(code: Integer, type: String, message: String)
+  ApiResponse = Keiyaku.model(code: Integer, type: String, message: String)
 end

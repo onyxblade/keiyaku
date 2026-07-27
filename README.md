@@ -1,7 +1,9 @@
-# openapi
+# keiyaku
 
-An OpenAPI-to-Ruby client generator built on the premise that almost everything
-existing generators emit is boilerplate that belongs in a runtime library.
+契約 — an OpenAPI-to-Ruby client generator built on the premise that almost
+everything existing generators emit is boilerplate that belongs in a runtime
+library. A spec is a contract; the generated code should be the part of it that
+is actually specific to your API, and nothing else.
 
 Generating the [Swagger Petstore](examples/petstore.yaml) (OAS 3.0.4, 19
 operations, 6 schemas):
@@ -16,7 +18,7 @@ The whole client:
 
 ```ruby
 module Petstore
-  class Client < OpenAPI::Client
+  class Client < Keiyaku::Client
     server "https://petstore3.swagger.io/api/v3"
     security({ header: "api_key" })
 
@@ -35,7 +37,7 @@ end
 and its types:
 
 ```ruby
-Pet = OpenAPI.model(
+Pet = Keiyaku.model(
   id: Integer, name: String, category: Category, photo_urls: [String],
   tags: [Tag], status: String, required: %i[name photo_urls]
 )
@@ -65,7 +67,7 @@ end
 ## How it splits
 
 Generated code carries only what is specific to one API: the operation table
-and the schema fields. Everything else lives in `lib/openapi/runtime.rb` —
+and the schema fields. Everything else lives in `lib/keiyaku/runtime.rb` —
 transport, auth, the `style`/`explode` parameter rules, body encoding, response
 casting, error mapping, retries. The contract between the two is one method,
 `Client#__invoke`, so the runtime can change without regenerating anything.
@@ -96,7 +98,7 @@ at generation time and emits an operation that raises:
 refused to generate 1 operation(s):
   - list_widgets: query parameter filter uses style=deepObject
 
-Calling one raises OpenAPI::Unsupported. Write those by hand.
+Calling one raises Keiyaku::Unsupported. Write those by hand.
 ```
 
 ## Tests
@@ -116,9 +118,10 @@ auth, a `default` error response, and JSON fields that are already snake_case
 
 - `multipart/form-data` — the last common construct that still gets refused
 - pagination — nothing at all; needs a `paginate:` hint and an `Enumerator`
-- `oneOf` — `OpenAPI::OneOf` exists in the runtime but the emitter does not
+- `oneOf` — `Keiyaku::OneOf` exists in the runtime but the emitter does not
   wire it up, so unions currently degrade to `:any`
 - regeneration overwrites wholesale; there is no merge strategy for hand edits
 - retries back off exponentially with no jitter
-- no gemspec — the runtime and the generator probably want to be two gems, and
-  neither has a name yet
+- no gemspec — `keiyaku`, `keiyaku-gen` and `keiyaku-runtime` are all free on
+  RubyGems, but the runtime/generator split has not been made yet, so nothing
+  is packaged. The name is provisional.

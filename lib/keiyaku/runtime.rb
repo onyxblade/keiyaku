@@ -10,10 +10,10 @@ require "date"
 #
 # Everything that is identical across every API lives here; the generated code
 # carries only what is specific to one API. The contract between the two is a
-# single method, Client#__invoke, plus OpenAPI.model.
-module OpenAPI
+# single method, Client#__invoke, plus Keiyaku.model.
+module Keiyaku
   UNSET = Object.new
-  def UNSET.inspect = "OpenAPI::UNSET"
+  def UNSET.inspect = "Keiyaku::UNSET"
   UNSET.freeze
 
   class Error < StandardError; end
@@ -95,7 +95,7 @@ module OpenAPI
 
   # Build a value type for one schema.
   #
-  #   Pet = OpenAPI.model(id: Integer, name: String, required: %i[name])
+  #   Pet = Keiyaku.model(id: Integer, name: String, required: %i[name])
   #
   # Returns a Data subclass, so callers get immutability, #with and pattern
   # matching for free. Missing optional fields arrive as nil rather than
@@ -113,7 +113,7 @@ module OpenAPI
       def to_json_hash
         self.class.json_names.filter_map do |name, json|
           value = public_send(name)
-          [json, OpenAPI.dump(value)] unless value.nil?
+          [json, Keiyaku.dump(value)] unless value.nil?
         end.to_h
       end
 
@@ -135,7 +135,7 @@ module OpenAPI
           raise CastError, "#{path}: missing required field #{json.inspect}"
         end
 
-        [field, OpenAPI.coerce(type, raw, "#{path}.#{field}")]
+        [field, Keiyaku.coerce(type, raw, "#{path}.#{field}")]
       end
 
       new(**attrs)
@@ -158,7 +158,7 @@ module OpenAPI
       raise CastError, "#{path}: expected an object" unless value.is_a?(Hash)
 
       tag = value[@discriminator]
-      variant = @map[tag] || @variants.find { |v| OpenAPI.snake(v.name.to_s.split("::").last) == OpenAPI.snake(tag.to_s) }
+      variant = @map[tag] || @variants.find { |v| Keiyaku.snake(v.name.to_s.split("::").last) == Keiyaku.snake(tag.to_s) }
       raise CastError, "#{path}: no variant for #{@discriminator}=#{tag.inspect}" unless variant
 
       variant.cast(value, path)
@@ -251,18 +251,18 @@ module OpenAPI
           path: path_params, query: query_params, header: header_params
         }
 
-        positional = path_params.map { OpenAPI.snake(_1) }
+        positional = path_params.map { Keiyaku.snake(_1) }
         positional << "body" if body || form
-        keywords = query_params.map { |param, req| "#{OpenAPI.snake(param)}:#{" OpenAPI::UNSET" unless req}" } +
-                   header_params.map { |_, ruby, req| "#{ruby}:#{" OpenAPI::UNSET" unless req}" }
+        keywords = query_params.map { |param, req| "#{Keiyaku.snake(param)}:#{" Keiyaku::UNSET" unless req}" } +
+                   header_params.map { |_, ruby, req| "#{ruby}:#{" Keiyaku::UNSET" unless req}" }
 
         # Built as source so the method has a real signature: correct arity,
         # correct keyword names, correct errors, and introspectable by tooling.
         class_eval <<~RUBY, __FILE__, __LINE__ + 1
           def #{name}(#{(positional + keywords).join(", ")})
             __invoke(:#{name},
-              path: {#{path_params.map { "#{_1.inspect} => #{OpenAPI.snake(_1)}" }.join(", ")}},
-              query: {#{query_params.map { |p, _| "#{p.inspect} => #{OpenAPI.snake(p)}" }.join(", ")}},
+              path: {#{path_params.map { "#{_1.inspect} => #{Keiyaku.snake(_1)}" }.join(", ")}},
+              query: {#{query_params.map { |p, _| "#{p.inspect} => #{Keiyaku.snake(p)}" }.join(", ")}},
               header: {#{header_params.map { |json, ruby, _| "#{json.inspect} => #{ruby}" }.join(", ")}},
               body: #{body || form ? "body" : "nil"})
           end
@@ -307,13 +307,13 @@ module OpenAPI
       payload =
         if op[:form]
           headers["Content-Type"] = "application/x-www-form-urlencoded"
-          URI.encode_www_form(OpenAPI.dump(body))
+          URI.encode_www_form(Keiyaku.dump(body))
         elsif op[:body] == :binary
           headers["Content-Type"] = op[:content_type]
           body.respond_to?(:read) ? body.read : body
         elsif op[:body]
           headers["Content-Type"] = "application/json"
-          JSON.generate(OpenAPI.dump(body))
+          JSON.generate(Keiyaku.dump(body))
         end
 
       status, response_headers, raw = __send_with_retries(op[:verb], uri, headers, payload)
@@ -326,7 +326,7 @@ module OpenAPI
         raise klass.new(status:, headers: response_headers, body: raw, parsed:)
       end
 
-      op[:into] ? OpenAPI.coerce(op[:into], parsed, name.to_s) : parsed
+      op[:into] ? Keiyaku.coerce(op[:into], parsed, name.to_s) : parsed
     end
 
     def __send_with_retries(verb, uri, headers, payload)

@@ -4,7 +4,7 @@
 require_relative "types"
 
 module Widgets
-  class Client < OpenAPI::Client
+  class Client < Keiyaku::Client
     server "https://api.widgets.test/v1"
     security(:bearer)
 

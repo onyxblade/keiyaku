@@ -4,7 +4,7 @@
 require_relative "types"
 
 module Petstore
-  class Client < OpenAPI::Client
+  class Client < Keiyaku::Client
     server "https://petstore3.swagger.io/api/v3"
     security({ header: "api_key" })
 
