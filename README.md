@@ -12,7 +12,7 @@ operations, 6 schemas):
 | --- | --- | --- |
 | generated Ruby | 4,316 lines across 25 files | **68 lines across 2 files** |
 | RBS | none | 82 lines |
-| shared runtime | — | 374 lines, written once |
+| shared runtime | — | 545 lines, written once |
 
 The whole client:
 
@@ -100,6 +100,79 @@ The DSL builds real methods with real arity — `get :get_pet_by_id,
 `ArgumentError` at the call, not a confusing failure inside the client. A `!`
 suffix marks a required parameter: `query: %i[status! limit]`.
 
+## Unions, uploads, pages
+
+A `oneOf` carrying a `discriminator` becomes a union that dispatches on it:
+
+```ruby
+Event = Keiyaku::OneOf[WidgetCreated, WidgetRetired, on: "kind",
+                       map: { "created" => WidgetCreated, "retired" => WidgetRetired }]
+```
+
+and the RBS gets `type event = WidgetCreated | WidgetRetired`. Without a
+discriminator there is nothing to dispatch on, so it stays `:any` and the run
+says so — casting by trying each variant until one sticks would be a guess.
+
+A `multipart/form-data` body is a model like any other, except that a property
+with `format: binary` is typed `:upload`:
+
+```ruby
+post :upload_photo, "/widgets/{id}/photo", multipart: UploadPhotoBody, into: Widget
+
+client.upload_photo(1, Widgets::UploadPhotoBody.new(
+  file: File.open("kaya.png"), caption: "a dog", tags: %w[dog good]
+))
+```
+
+A bare IO is wrapped in a `Keiyaku::Upload`, taking its filename from the path;
+construct one yourself to set the filename or content type. An array property
+becomes one part per element.
+
+Pagination is declared in the document, because OpenAPI has no way to describe
+it and a parameter named `page` is not evidence of anything:
+
+```yaml
+x-keiyaku-paginate: { by: offset, param: offset, size: limit, per: 100 }
+```
+
+```ruby
+client.list_events_each(7)                 # => Enumerator of Event
+client.list_events_each(7).lazy.first(20)  # one request, not all of them
+client.list_events_each(7) { |event| ... }
+```
+
+Four strategies: `offset` and `page` advance a parameter until a page comes
+back short, `cursor` reads the next cursor out of the response (`next:`, plus
+`items:` when the response is an envelope), and `link` follows an RFC 8288
+`Link: <...>; rel="next"` header. A hint naming a parameter the operation does
+not have is refused rather than ignored, since what it would otherwise produce
+is a client that pages forever.
+
+## Transport
+
+The default is `net/http`, and the gem has no dependencies. An adapter is one
+method:
+
+```ruby
+def call(verb, uri, headers, body) = [status, headers, body]
+```
+
+Two are shipped without being loaded, or depended on:
+
+```ruby
+require "keiyaku/adapters/faraday"
+
+client = Petstore::Client.new(adapter: Keiyaku::FaradayAdapter.new(connection))
+```
+
+`keiyaku/adapters/http` is the same for http.rb. Neither gem is a dependency
+and neither will become one: a client for one API has no business choosing an
+HTTP stack for the application around it. Response header names come back in
+whatever case the library uses; the runtime lower-cases them, so an adapter
+cannot get that wrong. Built-in retries back off exponentially with jitter and
+honour `Retry-After`; if Faraday is already carrying faraday-retry, build the
+client with `retries: 0` and let the middleware do it properly.
+
 ## Refusing rather than guessing
 
 The failure mode that matters is a generator emitting plausible code that is
@@ -118,23 +191,28 @@ Calling one raises Keiyaku::Unsupported. Write those by hand.
 ## Tests
 
 `rake` regenerates the examples, validates their RBS, and runs `test/e2e.rb`,
-which drives the generated clients against a real socket — 33 checks covering
+which drives the generated clients against a real socket — 53 checks covering
 name mapping in both directions, nested and array models, pattern matching,
 query array explosion, header parameters overriding credentials, typed error
-bodies, binary request bodies, and cast errors naming the offending field.
+bodies, binary and multipart request bodies, discriminated unions, all four
+pagination strategies, and cast errors naming the offending field.
 
 A second spec, [`examples/widgets.yaml`](examples/widgets.yaml), exists to keep
 the generator honest about not being fitted to the Petstore: OAS 3.1, bearer
 auth, a `default` error response, and JSON fields that are already snake_case
 (which the camelCase convention would otherwise guess wrong).
 
+The optional adapters are covered by the same suite, over the same socket, when
+faraday and http.rb happen to be installed. They are skipped otherwise, since
+neither is a dependency.
+
 ## Not done yet
 
-- `multipart/form-data` — the last common construct that still gets refused
-- pagination — nothing at all; needs a `paginate:` hint and an `Enumerator`
-- `oneOf` — `Keiyaku::OneOf` exists in the runtime but the emitter does not
-  wire it up, so unions currently degrade to `:any`
-- regeneration overwrites wholesale; there is no merge strategy for hand edits
-- retries back off exponentially with no jitter
+- `deepObject` query parameters (`filter[status]=x`) are still refused, as are
+  `explode: false` ones
+- pagination has to be declared in the document; for a spec you do not control
+  there is no hints file to declare it in
+- regeneration overwrites wholesale; there is no merge strategy for hand edits,
+  which bites hardest on the operations it refused and left you to write
 - nothing is published; the gem builds and installs but has never been pushed,
   and the name is still provisional

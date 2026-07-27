@@ -11,5 +11,9 @@ module Widgets
     unsupported :list_widgets, "query parameter filter uses style=deepObject"
     post   :create_widget, "/widgets", body: Widget, into: Widget, errors: { 422 => Problem }
     get    :get_widget, "/widgets/{id}", into: Widget, errors: { :default => Problem }
+    post   :upload_photo, "/widgets/{id}/photo", multipart: UploadPhotoBody, into: Widget
+    get    :search_widgets, "/widgets/search", query: %i[q! cursor], into: SearchWidgetsResult, paginate: { by: :cursor, param: "cursor", next: "next_cursor", items: "items" }
+    get    :widget_feed, "/widgets/feed", into: [Widget], paginate: { by: :link }
+    get    :list_events, "/widgets/{id}/events", query: %i[limit offset], into: [Event], paginate: { by: :offset, param: "offset", size: "limit", per: 2 }
   end
 end

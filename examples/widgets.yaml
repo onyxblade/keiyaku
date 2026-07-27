@@ -24,6 +24,31 @@ components:
       properties:
         detail: { type: string }
         trace_id: { type: string }
+        # Undiscriminated on purpose: this one has to degrade, with a note.
+        source:
+          anyOf: [{ type: string }, { type: integer }]
+    WidgetCreated:
+      type: object
+      required: [kind, widget]
+      properties:
+        kind: { type: string }
+        widget: { $ref: "#/components/schemas/Widget" }
+    WidgetRetired:
+      type: object
+      required: [kind, id]
+      properties:
+        kind: { type: string }
+        id: { type: integer }
+        reason: { type: string }
+    Event:
+      oneOf:
+        - $ref: "#/components/schemas/WidgetCreated"
+        - $ref: "#/components/schemas/WidgetRetired"
+      discriminator:
+        propertyName: kind
+        mapping:
+          created: "#/components/schemas/WidgetCreated"
+          retired: "#/components/schemas/WidgetRetired"
 paths:
   /widgets:
     get:
@@ -69,3 +94,66 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Problem" }
+  /widgets/{id}/photo:
+    post:
+      operationId: uploadPhoto
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file: { type: string, format: binary }
+                caption: { type: string }
+                tags: { type: array, items: { type: string } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Widget" }
+  /widgets/search:
+    get:
+      operationId: searchWidgets
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string } }
+        - { name: cursor, in: query, schema: { type: string } }
+      x-keiyaku-paginate: { by: cursor, param: cursor, next: next_cursor, items: items }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: "#/components/schemas/Widget" } }
+                  next_cursor: { type: string }
+  /widgets/feed:
+    get:
+      operationId: widgetFeed
+      x-keiyaku-paginate: { by: link }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Widget" } }
+  /widgets/{id}/events:
+    get:
+      operationId: listEvents
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+        - { name: limit, in: query, schema: { type: integer } }
+        - { name: offset, in: query, schema: { type: integer } }
+      x-keiyaku-paginate: { by: offset, param: offset, size: limit, per: 2 }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Event" } }

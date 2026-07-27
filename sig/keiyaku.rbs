@@ -53,22 +53,50 @@ module Keiyaku
     def cast: (untyped, ?String) -> untyped
   end
 
+  class Upload
+    attr_reader io: untyped
+    attr_reader filename: String
+    attr_reader content_type: String
+
+    def initialize: (untyped io, ?filename: String?, ?content_type: String?) -> void
+    def read: () -> String
+  end
+
   module Serialize
     def self.query: (Hash[String, untyped]) -> Array[[String, String]]
     def self.path: (untyped) -> String
     def self.stringify: (untyped) -> String
+    def self.multipart: (Hash[String, untyped], String boundary) -> String
+    def self.part: (String name, untyped value, String boundary) -> String
   end
 
   # Anything that can make a request. Pass one as `adapter:` to put the client
-  # on an HTTP stack the application already has.
+  # on an HTTP stack the application already has. Response header names may be
+  # in any case; the client lower-cases them before reading any.
   interface _Adapter
-    def call: (Symbol verb, untyped uri, Hash[String, String] headers, String? body) -> [Integer, Hash[String, String], String?]
+    def call: (Symbol verb, untyped uri, Hash[String, String] headers, String? body) -> [Integer, Hash[String, untyped], String?]
   end
 
   class NetHTTPAdapter
     include _Adapter
 
     def initialize: (?timeout: Integer | Float) -> void
+  end
+
+  # Loaded only by `require "keiyaku/adapters/faraday"`. Faraday's own types
+  # are deliberately not named here: the signature has to resolve whether or
+  # not the gem is installed.
+  class FaradayAdapter
+    include _Adapter
+
+    def initialize: (?untyped connection, **untyped) -> void
+  end
+
+  # Loaded only by `require "keiyaku/adapters/http"`. Wraps the http.rb gem.
+  class HTTPAdapter
+    include _Adapter
+
+    def initialize: (?untyped client, ?timeout: Integer | Float) -> void
   end
 
   class Client
@@ -87,8 +115,9 @@ module Keiyaku
     def self.operation: (
       Symbol verb, Symbol name, String template,
       ?query: Array[Symbol], ?header: Hash[String, Symbol],
-      ?body: untyped, ?form: untyped, ?content_type: String?,
-      ?into: untyped, ?errors: Hash[untyped, untyped], ?security: untyped
+      ?body: untyped, ?form: untyped, ?multipart: untyped, ?content_type: String?,
+      ?into: untyped, ?errors: Hash[untyped, untyped], ?security: untyped,
+      ?paginate: Hash[Symbol, untyped]?
     ) -> void
 
     def self.unsupported: (Symbol name, String reason) -> void

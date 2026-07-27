@@ -22,7 +22,8 @@ Gem::Specification.new do |spec|
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.2" # Data.define
 
-  spec.metadata["homepage_uri"] = spec.homepage
+  # No homepage_uri: spec.homepage already is it, and setting both makes
+  # rubygems.org drop one and warn about it at build time.
   spec.metadata["source_code_uri"] = spec.homepage
   spec.metadata["changelog_uri"] = "#{spec.homepage}/blob/main/CHANGELOG.md"
   spec.metadata["rubygems_mfa_required"] = "true"

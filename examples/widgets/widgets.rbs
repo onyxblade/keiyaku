@@ -13,7 +13,41 @@ module Widgets
   class Problem < ::Data
     attr_reader detail: String
     attr_reader trace_id: String?
+    attr_reader source: untyped?
     def self.cast: (untyped, ?String) -> Problem
+    def to_json_hash: () -> Hash[String, untyped]
+  end
+
+  class WidgetCreated < ::Data
+    attr_reader kind: String
+    attr_reader widget: Widget
+    def self.cast: (untyped, ?String) -> WidgetCreated
+    def to_json_hash: () -> Hash[String, untyped]
+  end
+
+  class WidgetRetired < ::Data
+    attr_reader kind: String
+    attr_reader id: Integer
+    attr_reader reason: String?
+    def self.cast: (untyped, ?String) -> WidgetRetired
+    def to_json_hash: () -> Hash[String, untyped]
+  end
+
+  type event = WidgetCreated | WidgetRetired
+  Event: Keiyaku::OneOf
+
+  class UploadPhotoBody < ::Data
+    attr_reader file: Keiyaku::Upload | IO
+    attr_reader caption: String?
+    attr_reader tags: Array[String]?
+    def self.cast: (untyped, ?String) -> UploadPhotoBody
+    def to_json_hash: () -> Hash[String, untyped]
+  end
+
+  class SearchWidgetsResult < ::Data
+    attr_reader items: Array[Widget]?
+    attr_reader next_cursor: String?
+    def self.cast: (untyped, ?String) -> SearchWidgetsResult
     def to_json_hash: () -> Hash[String, untyped]
   end
 
@@ -21,5 +55,12 @@ module Widgets
     def list_widgets: (*untyped) -> bot  # not generated: query parameter filter uses style=deepObject
     def create_widget: (Widget body) -> Widget
     def get_widget: (Integer id) -> Widget
+    def upload_photo: (Integer id, UploadPhotoBody body) -> Widget
+    def search_widgets: (q: String, ?cursor: String?) -> SearchWidgetsResult
+    def search_widgets_each: (q: String, ?cursor: String?) ?{ (Widget) -> void } -> Enumerator[Widget, void]
+    def widget_feed: () -> Array[Widget]
+    def widget_feed_each: () ?{ (Widget) -> void } -> Enumerator[Widget, void]
+    def list_events: (Integer id, ?limit: Integer?, ?offset: Integer?) -> Array[event]
+    def list_events_each: (Integer id, ?limit: Integer?, ?offset: Integer?) ?{ (event) -> void } -> Enumerator[event, void]
   end
 end

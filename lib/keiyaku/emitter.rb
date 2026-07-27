@@ -26,12 +26,19 @@ module Keiyaku
       %w[boolean] => ":bool"
     }.freeze
 
+    # OpenAPI describes no pagination, so there is nothing to detect: guessing
+    # from parameter names called `page` or `cursor` would produce a client
+    # that loops wrongly and silently. The document has to say so itself, in
+    # an x-keiyaku-paginate extension on the operation.
+    PAGINATION = %w[offset page cursor link].freeze
+
     attr_reader :refusals, :notes
 
     def initialize(path, namespace:)
       @spec = path.end_with?(".json") ? JSON.parse(File.read(path)) : YAML.load_file(path)
       @namespace = namespace
-      @models = {}      # constant name => source for Keiyaku.model(...)
+      @models = {}      # constant name => args for Keiyaku.model(...), or union source
+      @unions = {}      # union source => its RBS expansion, e.g. "Dog | Cat"
       @deps = {}        # constant name => referenced constant names
       @refusals = []
       @notes = []
@@ -59,20 +66,34 @@ module Keiyaku
     # --- schemas ------------------------------------------------------------
 
     def collect_models
-      (@spec.dig("components", "schemas") || {}).each_key do |name|
-        define_model(const_for(name), @spec["components"]["schemas"][name])
+      (@spec.dig("components", "schemas") || {}).each do |name, schema|
+        define_model(const_for(name), schema)
       end
     end
 
-    def define_model(const, schema)
+    # `upload:` is set while translating a multipart body, where a binary
+    # string means a file rather than a String.
+    def define_model(const, schema, upload: false)
       schema = merge_all_of(schema)
+
+      # A component that is itself a union is not a Data subclass; it is a
+      # constant holding the union, so that a $ref to it still resolves.
+      if schema["oneOf"] || schema["anyOf"]
+        deps = []
+        source, expansion = union_for(schema, const, deps)
+        @models[const] = source
+        @unions[const] = expansion
+        @deps[const] = deps.uniq - [const]
+        return
+      end
+
       properties = schema["properties"] || {}
       required = schema["required"] || []
       deps = []
 
       fields = properties.map do |json_name, property|
         field = Keiyaku.snake(json_name)
-        type = type_for(property, "#{const}.#{field}", deps)
+        type = type_for(property, "#{const}.#{field}", deps, upload:)
         [field, json_name, type]
       end
 
@@ -100,7 +121,7 @@ module Keiyaku
     end
 
     # Returns Ruby source for a type, recording model dependencies as it goes.
-    def type_for(schema, context, deps)
+    def type_for(schema, context, deps, upload: false)
       return ":any" if schema.nil? || schema.empty?
 
       if (ref = schema["$ref"])
@@ -112,13 +133,17 @@ module Keiyaku
       schema = merge_all_of(schema) if schema["allOf"]
 
       if schema["oneOf"] || schema["anyOf"]
-        @notes << "#{context}: oneOf/anyOf without a discriminator, typed as :any"
-        return ":any"
+        source, expansion = union_for(schema, context, deps)
+        @unions[source] = expansion unless source == ":any"
+        return source
       end
 
       case schema["type"]
       when "array"
-        "[#{type_for(schema["items"] || {}, "#{context}[]", deps)}]"
+        # An array of files is a real multipart shape, so `upload:` carries
+        # into the items — but not into a nested object, where a part is JSON
+        # and a file would be meaningless.
+        "[#{type_for(schema["items"] || {}, "#{context}[]", deps, upload:)}]"
       when "object", nil
         if (additional = schema["additionalProperties"]).is_a?(Hash)
           "{ String => #{type_for(additional, "#{context}{}", deps)} }"
@@ -129,16 +154,52 @@ module Keiyaku
           ":any"
         end
       else
-        SCALARS[[schema["type"], schema["format"]].compact] || SCALARS[[schema["type"]]] || ":any"
+        format = [schema["type"], schema["format"]].compact
+        if upload && format == %w[string binary]
+          ":upload"
+        else
+          SCALARS[format] || SCALARS[[schema["type"]]] || ":any"
+        end
       end
     end
 
+    # A union translates only when the document says how to tell the variants
+    # apart. Casting by trying each one until something sticks is exactly the
+    # plausible-but-wrong behaviour this generator exists to avoid, so an
+    # undiscriminated union stays :any and says why.
+    #
+    # Returns the Ruby source and the RBS that describes it.
+    def union_for(schema, context, deps)
+      keyword = schema["oneOf"] ? "oneOf" : "anyOf"
+      variants = schema[keyword]
+      property = schema.dig("discriminator", "propertyName")
+
+      complaint =
+        if property.nil? then "no discriminator"
+        elsif !variants.all? { _1.key?("$ref") } then "a variant written inline"
+        end
+      if complaint
+        @notes << "#{context}: #{keyword} with #{complaint}, typed as :any"
+        return [":any", "untyped"]
+      end
+
+      consts = variants.map { const_for(_1["$ref"]) }
+      mapping = (schema["discriminator"]["mapping"] || {}).map do |value, ref|
+        [value, const_for(ref)]
+      end
+      deps.concat(consts + mapping.map(&:last))
+
+      args = [*consts, "on: #{property.inspect}"]
+      args << "map: { #{mapping.map { |value, const| "#{value.inspect} => #{const}" }.join(", ")} }" if mapping.any?
+      ["Keiyaku::OneOf[#{args.join(", ")}]", (consts + mapping.map(&:last)).uniq.join(" | ")]
+    end
+
     # An inline object gets its own type rather than degrading to a bare Hash.
-    def hoist(context, schema, deps)
+    def hoist(context, schema, deps, upload: false)
       const = context.split(/[.\[\]{}]/).reject(&:empty?).map { |part| Keiyaku.camelize(part).sub(/\A./, &:upcase) }.join
       return nil if @models.key?(const)
 
-      define_model(const, schema)
+      define_model(const, schema, upload:)
       deps << const
       const
     end
@@ -187,7 +248,7 @@ module Keiyaku
           return refuse.("path parameter #{param["name"]} uses style=#{style}") unless style == "simple"
         when "query"
           return refuse.("query parameter #{param["name"]} uses style=#{style}") unless style == "form"
-          return refuse.("query parameter #{param["name"]} needs explode=false") unless explode
+          return refuse.("query parameter #{param["name"]} uses explode=false") unless explode
 
           query << "#{param["name"]}#{"!" if param["required"]}"
         when "header"
@@ -197,7 +258,12 @@ module Keiyaku
         end
       end
 
-      body = form = content_type = nil
+      hint = op["x-keiyaku-paginate"]
+      if hint && (problem = pagination_problem(hint, query))
+        return refuse.("x-keiyaku-paginate: #{problem}")
+      end
+
+      body = form = multipart = content_type = nil
       if (request_body = resolve(op["requestBody"]))
         content = request_body["content"] || {}
         json = content.keys.find { _1.include?("json") }
@@ -207,6 +273,8 @@ module Keiyaku
           body = type_for(content[json]["schema"], "#{name}_body", deps)
         elsif content.key?("application/x-www-form-urlencoded")
           form = type_for(content["application/x-www-form-urlencoded"]["schema"], "#{name}_body", deps)
+        elsif content.key?("multipart/form-data")
+          multipart = multipart_type(content["multipart/form-data"]["schema"] || {}, "#{name}_body", deps)
         elsif binary
           body = ":binary"
           content_type = binary
@@ -236,8 +304,41 @@ module Keiyaku
         @notes << "#{name}: success response has no JSON representation, returns the raw body"
       end
 
-      { name:, verb:, template:, query:, header:, types:, body:, form:, content_type:, into:, errors:,
+      { name:, verb:, template:, query:, header:, types:, body:, form:, multipart:, content_type:, into:,
+        errors:, hint:, paginate: (hint && hash_source(hint)),
         security: (op["security"] == [] ? "false" : nil), summary: op["summary"], deps: }
+    end
+
+    # A hint that names a parameter the operation does not have would produce a
+    # client that pages forever, so it is refused like any other construct that
+    # cannot be honoured.
+    def pagination_problem(hint, query)
+      by = hint["by"].to_s
+      names = query.map { _1.delete_suffix("!") }
+
+      if !PAGINATION.include?(by)
+        "unknown strategy #{hint["by"].inspect}, expected one of #{PAGINATION.join(", ")}"
+      elsif (wrong = %w[param size].find { hint[_1] && !names.include?(hint[_1]) })
+        "#{wrong} #{hint[wrong].inspect} is not a query parameter of this operation"
+      elsif by != "link" && hint["param"].nil?
+        "by: #{by} needs the name of the parameter to advance"
+      elsif by == "cursor" && hint["next"].nil?
+        "by: cursor needs the response field the next cursor comes from"
+      end
+    end
+
+    def hash_source(hint)
+      "{ #{hint.map { |key, value| "#{key}: #{key == "by" ? ":#{value}" : value.inspect}" }.join(", ")} }"
+    end
+
+    # A multipart body always gets its own type, even where the document points
+    # at a shared component: `format: binary` means a file here and a plain
+    # string everywhere else, and one model cannot mean both.
+    def multipart_type(schema, context, deps)
+      schema = merge_all_of(resolve(schema))
+      return type_for(schema, context, deps) unless schema["properties"]
+
+      hoist(context, schema, deps, upload: true) || ":any"
     end
 
     # --- output -------------------------------------------------------------
@@ -259,6 +360,8 @@ module Keiyaku
     def types_source
       lines = sorted_models.map do |const|
         args = @models[const]
+        next "  #{const} = #{args}" if args.is_a?(String)
+
         one_line = "  #{const} = Keiyaku.model(#{args.join(", ")})"
         next one_line if one_line.length <= 110
 
@@ -286,9 +389,11 @@ module Keiyaku
         args << "header: { #{op[:header].map { |json, ruby| "#{json.inspect} => :#{ruby}" }.join(", ")} }" if op[:header].any?
         args << "body: #{op[:body]}" if op[:body]
         args << "form: #{op[:form]}" if op[:form]
+        args << "multipart: #{op[:multipart]}" if op[:multipart]
         args << "content_type: #{op[:content_type].inspect}" if op[:content_type]
         args << "into: #{op[:into]}" if op[:into]
         args << "errors: { #{op[:errors].map { |status, type| "#{status} => #{type}" }.join(", ")} }" if op[:errors].any?
+        args << "paginate: #{op[:paginate]}" if op[:paginate]
         args << "security: false" if op[:security]
 
         "    #{op[:verb].ljust(6)} #{args.join(", ")}"
@@ -310,18 +415,51 @@ module Keiyaku
       RUBY
     end
 
-    RBS_SCALARS = { ":bool" => "bool", ":any" => "untyped", ":binary" => "String" }.freeze
+    RBS_SCALARS = {
+      ":bool" => "bool", ":any" => "untyped", ":binary" => "String",
+      ":upload" => "Keiyaku::Upload | IO"
+    }.freeze
 
     def rbs_type(source)
       return "Array[#{rbs_type(source[1..-2].strip)}]" if source.start_with?("[")
       return "Hash[String, #{rbs_type(source[/=>(.*)}/m, 1].strip)}]" if source.start_with?("{")
 
+      # A named union is referred to by its alias; an inline one is spelled out.
+      if (expansion = @unions[source])
+        return source.start_with?("Keiyaku::OneOf[") ? expansion : Keiyaku.snake(source)
+      end
+
       RBS_SCALARS[source] || source
+    end
+
+    # What the enumerator yields: the element of the array being paged over,
+    # which is either the response itself or a field of the envelope.
+    def paginate_element(op)
+      source = op[:into]
+      if (items = op[:hint]["items"])
+        args = @models[source]
+        return "untyped" unless args.is_a?(Array)
+
+        field = "#{Keiyaku.snake(items)}: "
+        source = args.find { _1.start_with?(field) }&.delete_prefix(field)
+      end
+
+      source.to_s.start_with?("[") ? rbs_type(source[1..-2].strip) : "untyped"
+    end
+
+    # RBS has no constant that stands for a union, so a union component becomes
+    # a type alias for signatures to use, plus the constant itself for callers
+    # that reach for `Event.cast`.
+    def union_rbs(const)
+      "  type #{Keiyaku.snake(const)} = #{@unions[const]}\n" \
+        "  #{const}: #{@models[const] == ":any" ? "Symbol" : "Keiyaku::OneOf"}"
     end
 
     def rbs_source(operations)
       models = sorted_models.map do |const|
         source = @models[const]
+        next union_rbs(const) if source.is_a?(String)
+
         required = source.find { _1.start_with?("required:") }.to_s[/%i\[(.*)\]/, 1].to_s.split
         readers = source.reject { _1.start_with?("required:", "from:") }.map do |arg|
           field, type = arg.split(": ", 2)
@@ -343,7 +481,8 @@ module Keiyaku
         positional = op[:template].scan(/\{(\w+)\}/).flatten.map do |param|
           "#{rbs_type(types[param] || ":any")} #{Keiyaku.snake(param)}"
         end
-        positional << "#{rbs_type(op[:body] || op[:form])} body" if op[:body] || op[:form]
+        payload = op[:body] || op[:form] || op[:multipart]
+        positional << "#{rbs_type(payload)} body" if payload
 
         keyword = lambda do |json_name, declared|
           required = declared.end_with?("!")
@@ -352,7 +491,13 @@ module Keiyaku
         end
         keywords = op[:query].map { keyword.(_1.delete_suffix("!"), _1) } +
                    op[:header].map { |json, ruby| keyword.(json, ruby) }
-        "    def #{op[:name]}: (#{(positional + keywords).join(", ")}) -> #{op[:into] ? rbs_type(op[:into]) : "untyped"}"
+        arguments = (positional + keywords).join(", ")
+        signature = "    def #{op[:name]}: (#{arguments}) -> #{op[:into] ? rbs_type(op[:into]) : "untyped"}"
+        next signature unless op[:paginate]
+
+        element = paginate_element(op)
+        "#{signature}\n    def #{op[:name]}_each: (#{arguments}) " \
+          "?{ (#{element}) -> void } -> Enumerator[#{element}, void]"
       end
 
       <<~RBS
