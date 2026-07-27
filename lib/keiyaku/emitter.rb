@@ -140,6 +140,14 @@ module Keiyaku
 
       case schema["type"]
       when "array"
+        # A tuple — `items` as a list in draft-07, `prefixItems` in 2020-12 —
+        # is a fixed-length heterogeneous array, which one element type cannot
+        # describe. Taking the first element's type would be a guess.
+        if schema["items"].is_a?(Array) || schema["prefixItems"]
+          @notes << "#{context}: a tuple, typed as [:any]"
+          return "[:any]"
+        end
+
         # An array of files is a real multipart shape, so `upload:` carries
         # into the items — but not into a nested object, where a part is JSON
         # and a file would be meaningless.

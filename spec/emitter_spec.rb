@@ -56,6 +56,31 @@ RSpec.describe Keiyaku::Emitter do
     end
   end
 
+  # A fixed-length heterogeneous array is not something one element type can
+  # describe, and taking the first element's would be a guess. Both spellings
+  # reach here from real documents: `items` as a list is what TypeBox emits,
+  # `prefixItems` is the 2020-12 form.
+  {
+    "items as a list" => "items:\n            - { type: string }\n            - { type: integer }",
+    "prefixItems" => "prefixItems:\n            - { type: string }\n            - { type: integer }"
+  }.each do |spelling, schema|
+    it "types a tuple written with #{spelling} as [:any]" do
+      emitter = generate(document(<<~YAML))
+        operationId: listThings
+        responses:
+          "200":
+            description: ok
+            content:
+              application/json:
+                schema:
+                  type: array
+                  #{schema}
+      YAML
+
+      expect(emitter.notes).to include(/a tuple, typed as \[:any\]/)
+    end
+  end
+
   # Casting by trying each variant until one sticks would be a guess, so a
   # union with nothing to dispatch on degrades to :any rather than to a coin
   # flip — but it is not allowed to do that quietly.
