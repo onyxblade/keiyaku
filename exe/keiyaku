@@ -39,3 +39,13 @@ unless emitter.refusals.empty?
   emitter.refusals.each { puts "  - #{_1.operation}: #{_1.reason}" }
   puts "\nCalling one raises Keiyaku::Unsupported. Write those by hand."
 end
+
+# The generator writing a file Ruby cannot read back is a defect in the
+# generator, not in the document, and it exits non-zero so that a build does
+# not carry on with a client nothing can require.
+if emitter.broken
+  puts "\nthe generated client does not load:"
+  puts emitter.broken.lines.map { "  #{_1}" }
+  puts "\nThis is a bug in keiyaku. The files are still there to look at."
+  exit 1
+end

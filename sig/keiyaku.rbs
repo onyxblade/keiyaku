@@ -103,7 +103,15 @@ module Keiyaku
   class Client
     def self.operations: () -> Hash[Symbol, Hash[Symbol, untyped]]
     def self.server: (?String?) -> String?
-    def self.security: (?untyped) -> untyped
+
+    # The schemes the document declares, by its own name for each, and the
+    # requirement that holds where an operation states none of its own.
+    def self.security: (?Hash[Symbol | String, untyped] schemes, ?default: untyped) -> untyped
+    def self.default_security: () -> Array[Array[Symbol]]
+
+    # A requirement is a list of alternatives, any one of which is enough,
+    # each naming the schemes that all have to be satisfied.
+    def self.requirement: (untyped) -> Array[Array[Symbol]]
 
     def self.get: (Symbol name, String template, **untyped) -> void
     def self.post: (Symbol name, String template, **untyped) -> void
@@ -125,9 +133,12 @@ module Keiyaku
 
     attr_reader base_url: String
 
+    # `auth:` is credentials by scheme name — a bare value only where the
+    # document declares one scheme, since with two there is nothing to say
+    # which it is.
     def initialize: (
-      ?base_url: String?, ?auth: untyped, ?adapter: _Adapter?,
-      ?timeout: Integer | Float, ?retries: Integer, ?logger: untyped
+      ?base_url: String?, ?auth: Hash[Symbol | String, untyped] | String | Array[String] | nil,
+      ?adapter: _Adapter?, ?timeout: Integer | Float, ?retries: Integer, ?logger: untyped
     ) -> void
   end
 end

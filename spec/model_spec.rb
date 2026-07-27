@@ -43,4 +43,25 @@ RSpec.describe "Keiyaku.model" do
     point = Keiyaku.model({ x: Integer, y: Integer })
     expect(point.new(x: 1, y: 2).to_json_hash).to eq({ "x" => 1, "y" => 2 })
   end
+
+  # Two directions with two different right answers. A response is the
+  # server's, and a field it has added is not a reason to stop working; a
+  # request is the caller's, and a keyword the schema never mentioned is a
+  # typo that would otherwise go out as a body missing the field they set.
+  describe "what it does with a name it does not know" do
+    subject(:pet) { Keiyaku.model({ name: String, photo_urls: [String] }, required: %i[name]) }
+
+    it "ignores it in a response" do
+      expect(pet.cast({ "name" => "Nori", "vaccinated" => true }).name).to eq "Nori"
+    end
+
+    it "refuses it in a constructor" do
+      expect { pet.new(name: "Nori", photo_urlz: ["typo"]) }
+        .to raise_error(ArgumentError, /unknown keyword: :photo_urlz/)
+    end
+
+    it "still leaves a field it was not given as nil" do
+      expect(pet.new(name: "Nori").photo_urls).to be_nil
+    end
+  end
 end

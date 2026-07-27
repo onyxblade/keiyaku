@@ -6,7 +6,7 @@ require_relative "types"
 module Widgets
   class Client < Keiyaku::Client
     server "https://api.widgets.test/v1"
-    security(:bearer)
+    security({ bearerAuth: :bearer }, default: :bearerAuth)
 
     unsupported :list_widgets, "query parameter filter uses style=deepObject"
     post   :create_widget, "/widgets", body: Widget, into: Widget, errors: { 422 => Problem }

@@ -2,9 +2,104 @@
 
 require "yaml"
 require "json"
+require "rbconfig"
 require_relative "runtime"
 
 module Keiyaku
+  # Every Ruby name the generator invents is decided here, so that a collision
+  # is something one table can see rather than something each site discovers
+  # separately — and so that a name Ruby will not accept is a refusal at
+  # generation time rather than a SyntaxError at somebody's first require.
+  module Names
+    module_function
+
+    IDENTIFIER = /\A[a-z_][a-zA-Z0-9_]*\z/
+
+    KEYWORDS = %w[
+      BEGIN END alias and begin break case class def defined do else elsif end ensure false for if in module
+      next nil not or redo rescue retry return self super then true undef unless until when while yield __FILE__
+      __LINE__ __ENCODING__
+    ].freeze
+
+    # Names the generated client needs for itself. `def class` is legal Ruby
+    # and overrides the method every lookup in the runtime goes through, which
+    # is a client that recurses until the stack ends rather than one that
+    # fails to load.
+    CLIENT_METHODS = (Keiyaku::Client.instance_methods(false) +
+                      Keiyaku::Client.private_instance_methods(false) + %i[initialize]).map(&:to_s).freeze
+
+    # A model's own contract: `with` and `to_h` are how a Data is used,
+    # `deconstruct_keys` is how it pattern matches, `to_json_hash` is how it
+    # becomes a request body, and `class` is how anything finds out what it
+    # is. A property taking one of those names leaves the model unable to do
+    # its job — unlike, say, one called `hash`, which plenty of real documents
+    # have and which costs only the model's use as a Hash key.
+    MODEL_METHODS = %w[class with to_h members deconstruct deconstruct_keys to_json to_json_hash].freeze
+
+    # The constants the generated files actually spend, and no more. `Client`
+    # is the class itself; `String` and the rest are what every other model's
+    # fields are declared as, so a schema of that name would quietly change
+    # what they cast to. A schema called `Range` or `File` shadows nothing
+    # here — the generated code never mentions either — and refusing it would
+    # be this table inventing a problem.
+    CONSTANTS = %w[Client Keiyaku String Integer Float Time Date].freeze
+
+    # `problem-details` and `problem_details` both want ProblemDetails, which
+    # is a collision the caller has to hear about rather than a name to
+    # invent a suffix for.
+    def constant(name)
+      const = name.to_s.split(/[^a-zA-Z0-9]+/).reject(&:empty?)
+                  .map { |part| Keiyaku.camelize(part).sub(/\A./, &:upcase) }.join
+      raise Impossible, "#{name.inspect} cannot be a Ruby constant" unless const.match?(/\A[A-Z][a-zA-Z0-9]*\z/)
+      raise Impossible, "#{name.inspect} would be #{const}, which is spoken for" if CONSTANTS.include?(const)
+
+      const
+    end
+
+    # Not called `method`, which would shadow the one every object has — the
+    # kind of collision the rest of this table exists to refuse.
+    def operation(name)
+      # The separators have to become underscores before snake sees them: it
+      # drops anything that is not a word character, which would run the
+      # segments of a path together.
+      ruby = Keiyaku.snake(name.to_s.gsub(/[^a-zA-Z0-9]+/, "_")).squeeze("_").delete_prefix("_").delete_suffix("_")
+      raise Impossible, "#{name.inspect} cannot be a Ruby method name" unless ruby.match?(IDENTIFIER)
+      raise Impossible, "#{name.inspect} is a Ruby keyword" if KEYWORDS.include?(ruby)
+      raise Impossible, "#{name.inspect} is a method the client needs" if CLIENT_METHODS.include?(ruby)
+
+      ruby
+    end
+
+    # A parameter becomes an argument of the generated method, which is a
+    # local: it may shadow a method without harm, but it may not be a keyword,
+    # since `def find(class:)` is a file Ruby will not read.
+    def parameter(name)
+      ruby = Keiyaku.snake(name)
+      raise Impossible, "parameter #{name.inspect} cannot be a Ruby argument name" unless ruby.match?(IDENTIFIER)
+      raise Impossible, "parameter #{name.inspect} is a Ruby keyword" if KEYWORDS.include?(ruby)
+
+      ruby
+    end
+
+    # A field is a Data member, which is a method reached through a dot and a
+    # Hash key written as a label. Both take a keyword: `{ end: String }` and
+    # `range.end` are ordinary Ruby, and a date range is not an unusual shape
+    # for a document to have. Only the names below are actually spent.
+    def field(name)
+      ruby = Keiyaku.snake(name)
+      raise Impossible, "property #{name.inspect} cannot be a Ruby method name" unless ruby.match?(IDENTIFIER)
+      raise Impossible, "property #{name.inspect} is a method the model needs" if MODEL_METHODS.include?(ruby)
+
+      ruby
+    end
+  end
+
+  # Raised while translating something the generator cannot translate
+  # faithfully. Caught per operation, where it becomes a refusal; raised while
+  # building a component, it poisons that component and every operation that
+  # reaches it.
+  class Impossible < StandardError; end
+
   # Turns an OpenAPI document into three files: value types, a client, and RBS.
   #
   # The guiding rule is that anything it cannot translate faithfully becomes a
@@ -21,6 +116,10 @@ module Keiyaku
     # Stamped on every file it writes: which generator, and which version of
     # the runtime contract the code was written against.
     HEADER = "# Generated by keiyaku #{VERSION}. Edits will be overwritten."
+
+    # Where the runtime is, for the process that reads the generated files
+    # back. Whether it is also an installed gem is not something to depend on.
+    LIB = File.expand_path("..", __dir__)
 
     SCALARS = {
       %w[string date-time] => "Time",
@@ -46,35 +145,126 @@ module Keiyaku
       @models = {}      # constant name => args for Keiyaku.model(...), or union source
       @unions = {}      # union source => its RBS expansion, e.g. "Dog | Cat"
       @deps = {}        # constant name => referenced constant names
+      @poisoned = {}    # constant name => why nothing may be typed as it
       @refusals = []
       @notes = []
     end
 
-    def emit(dir)
+    # The generated files, and whether Ruby could read them back. Anything
+    # already written stays on disk: reading the file the generator could not
+    # load is how its remaining mistakes get found.
+    attr_reader :broken
+
+    def emit(dir, verify: true)
       collect_models
       operations = collect_operations
       File.write(File.join(dir, "types.rb"), types_source)
       File.write(File.join(dir, "client.rb"), client_source(operations))
       File.write(File.join(dir, "#{Keiyaku.snake(@namespace)}.rbs"), rbs_source(operations))
+      @broken = verify ? load_check(dir) : nil
       operations
     end
 
     private
 
-    def resolve(node)
-      return node unless node.is_a?(Hash) && node["$ref"]
+    # Only the document in hand. A `$ref` into another file is not a narrower
+    # case of this one: taking the last segment of `common.yaml#/Pet` would
+    # name the local Pet, and the client would then load, run, and decode one
+    # schema as another. Bundle the document first; this says so rather than
+    # guessing what was in the file it cannot see.
+    def pointer(ref)
+      raise Impossible, "$ref #{ref.inspect} is not local to this document; bundle it first" unless ref.start_with?("#/")
 
-      node["$ref"].delete_prefix("#/").split("/").reduce(@spec) { |doc, key| doc.fetch(key) }
+      ref.delete_prefix("#/").split("/").reduce(@spec) do |doc, key|
+        # ~1 and ~0 are how a JSON Pointer spells / and ~, which a path
+        # template in `#/paths/~1pets/get` is full of.
+        key = key.gsub("~1", "/").gsub("~0", "~")
+        raise Impossible, "$ref #{ref.inspect} does not resolve" unless doc.is_a?(Hash) && doc.key?(key)
+
+        doc[key]
+      end
     end
 
-    def const_for(ref) = ref.split("/").last.gsub(/[^a-zA-Z0-9]/, "")
+    def resolve(node)
+      node.is_a?(Hash) && node["$ref"] ? pointer(node["$ref"]) : node
+    end
+
+    # The constant a `$ref` names, having checked that there is something at
+    # the other end of it and that nothing has spoiled the name.
+    def const_for(ref)
+      pointer(ref)
+      const = Names.constant(ref.split("/").last.gsub("~1", "/").gsub("~0", "~"))
+      raise Impossible, @poisoned[const] if @poisoned.key?(const)
+
+      const
+    end
 
     # --- schemas ------------------------------------------------------------
 
     def collect_models
-      (@spec.dig("components", "schemas") || {}).each do |name, schema|
-        define_model(const_for(name), schema)
+      schemas = @spec.dig("components", "schemas") || {}
+
+      # Two schemas wanting one constant is settled before either is built:
+      # whichever came second would otherwise replace the first, and every
+      # operation typed as the first would go on being generated against a
+      # model that is no longer there.
+      names = {}
+      schemas.each_key do |name|
+        const = begin
+          Names.constant(name)
+        rescue Impossible => e
+          # Nothing can refer to it either, so whatever does gets the same
+          # message where it can be acted on: against the operation.
+          next @notes << "schema #{name.inspect} is not emitted: #{e.message}"
+        end
+
+        if (first = names[const])
+          poison(const, "schemas #{first.inspect} and #{name.inspect} both map to #{const}")
+        else
+          names[const] = name
+        end
       end
+
+      schemas.each do |name, schema|
+        const = names.key(name) or next
+        next if @poisoned.key?(const)
+
+        begin
+          define_model(const, schema)
+        rescue Impossible => e
+          poison(const, "#{const}: #{e.message}")
+        end
+      end
+
+      spread_poison
+    end
+
+    # A component nothing may be typed as. It is a note as well as a poison,
+    # because the operation that gets refused for reaching it is refused two
+    # models further down, and would otherwise be the only thing said about a
+    # schema whose own problem is never mentioned.
+    def poison(const, reason)
+      @notes << reason
+      @poisoned[const] = reason
+    end
+
+    # A model built out of a poisoned one is poisoned too, however far down the
+    # chain it sits, so that no operation is typed as something types.rb does
+    # not go on to define.
+    def spread_poison
+      loop do
+        spread = @deps.filter_map do |const, deps|
+          next if @poisoned.key?(const)
+
+          culprit = deps.find { @poisoned.key?(_1) }
+          [const, "#{const} is built from #{culprit}, which was refused"] if culprit
+        end
+        break if spread.empty?
+
+        @poisoned.merge!(spread.to_h)
+      end
+
+      @poisoned.each_key { @models.delete(_1) }
     end
 
     # `upload:` is set while translating a multipart body, where a binary
@@ -105,15 +295,18 @@ module Keiyaku
     # compare it against the ones already emitted.
     def build_model(const, schema, deps, upload: false)
       declared = schema["required"] || []
-      fields, required, from = {}, [], {}
+      fields, required, from, seen = {}, [], {}, {}
 
       (schema["properties"] || {}).each do |json_name, property|
-        field = Keiyaku.snake(json_name)
-        if fields.key?(field)
-          @notes << "#{const}: #{json_name.inspect} and another property both become #{field}, keeping the first"
-          next
+        field = Names.field(json_name)
+        # Keeping the first would leave a model that quietly drops a property
+        # the document declares, and a request body missing a field the caller
+        # thought they had set.
+        if (first = seen[field])
+          raise Impossible, "properties #{first.inspect} and #{json_name.inspect} both become #{field}"
         end
 
+        seen[field] = json_name
         fields[field] = type_for(property, "#{const}.#{field}", deps, upload:)
         required << field if declared.include?(json_name)
         from[field] = json_name if Keiyaku.camelize(field) != json_name
@@ -175,8 +368,7 @@ module Keiyaku
         if (additional = schema["additionalProperties"]).is_a?(Hash)
           "{ String => #{type_for(additional, "#{context}{}", deps)} }"
         elsif schema["properties"]
-          const = hoist(context, schema, deps)
-          const || ":any"
+          hoist(context, schema, deps)
         else
           ":any"
         end
@@ -234,8 +426,10 @@ module Keiyaku
       end
 
       consts = variants.map { const_for(_1["$ref"]) }
+      # A mapping's value is either a $ref or the bare name of a schema in
+      # components, which the specification allows and documents use.
       mapping = (schema["discriminator"]["mapping"] || {}).map do |value, ref|
-        [value, const_for(ref)]
+        [value, const_for(ref.include?("/") ? ref : "#/components/schemas/#{ref}")]
       end
       deps.concat(consts + mapping.map(&:last))
 
@@ -250,7 +444,7 @@ module Keiyaku
     # like — would otherwise get a model per copy, so an identical model that
     # has already been emitted is used instead of a second one.
     def hoist(context, schema, deps, upload: false)
-      const = context.split(/[.\[\]{}]/).reject(&:empty?).map { |part| Keiyaku.camelize(part).sub(/\A./, &:upcase) }.join
+      const = Names.constant(context.split(/[.\[\]{}]/).reject(&:empty?).join("_"))
       own = []
       model = build_model(const, merge_all_of(schema), own, upload:)
 
@@ -259,10 +453,10 @@ module Keiyaku
         return existing
       end
 
-      if @models.key?(const)
-        @notes << "#{const} already names a different schema, so #{context} is typed :any"
-        return nil
-      end
+      # Typing it :any instead would leave the caller a Hash where the
+      # document describes a shape, and no way to tell which of the two
+      # schemas the name ended up meaning.
+      raise Impossible, "#{const} already names a different schema" if @models.key?(const) || @poisoned.key?(const)
 
       @models[const] = model
       @deps[const] = own.uniq - [const]
@@ -277,39 +471,127 @@ module Keiyaku
         @notes << "no servers declared; a client has to be built with base_url:"
       end
 
-      schemes = @spec.dig("components", "securitySchemes") || {}
-      @security = schemes.filter_map { |_, scheme| security_declaration(scheme) }.first
-      if @security.nil? && schemes.any?
-        @notes << "no supported security scheme (#{schemes.values.map { _1["type"] }.uniq.join(", ")}); " \
-                  "the client sends no credentials"
-      end
+      collect_security
 
-      operations = @spec["paths"].flat_map do |template, path_item|
+      operations = (@spec["paths"] || {}).flat_map do |template, path_item|
+        begin
+          path_item = resolve(path_item)
+        rescue Impossible => e
+          # There is no operation to refuse yet — the verbs are on the other
+          # side of the $ref — so the path goes in the report whole.
+          @refusals << Refusal.new(template, e.message)
+          next []
+        end
+
         path_item.slice("get", "put", "post", "delete", "patch", "head", "options").map do |verb, op|
           build_operation(verb, template, op, path_item["parameters"] || [])
         end
       end
 
-      # Two operations landing on one name would mean the second silently
-      # replacing the first, which is a method that goes somewhere other than
-      # where its name says.
+      # Two operations landing on one name is not a note: whichever the
+      # generator wrote second would take the method, and every call meant for
+      # the other would go somewhere else entirely. Neither is emitted, and the
+      # document has to say which is which.
       operations.group_by { _1[:name] }.each do |name, group|
         next if group.size == 1
 
-        @notes << "#{name} names #{group.size} operations (#{group.map { "#{_1[:verb].upcase} #{_1[:template]}" }.join(", ")}); " \
-                  "only the last is reachable"
+        reason = "#{group.size} operations map to this name (#{group.map { "#{_1[:verb].upcase} #{_1[:template]}" }.join(", ")})"
+        @refusals << Refusal.new(name, reason)
+        group.each { _1.replace(name:, unsupported: reason) }
       end
 
-      operations
+      operations.uniq { _1[:unsupported] ? _1[:name] : _1.object_id }
+    end
+
+    # --- security -----------------------------------------------------------
+
+    # The schemes the document declares, in the runtime's own vocabulary. One
+    # nobody can implement is kept out of the table rather than out of the
+    # document: it only costs the operations that actually require it.
+    def collect_security
+      @schemes = {}
+      @unsupported_schemes = {}
+
+      (@spec.dig("components", "securitySchemes") || {}).each do |name, scheme|
+        scheme = resolve(scheme)
+        if (declaration = security_declaration(scheme))
+          @schemes[name] = declaration
+        else
+          @unsupported_schemes[name] = [scheme["type"], scheme["scheme"]].compact.join(" ")
+        end
+      end
+
+      @default_security = requirement_for(@spec["security"])
+      # What an operation that says nothing about security gets. An
+      # alternative naming a scheme nothing can send is not one of them, and
+      # the operations that are left with none are refused one by one below.
+      @default_usable = (@default_security || []).select { |schemes| schemes.all? { @schemes.key?(_1) } }
     end
 
     def security_declaration(scheme)
-      case scheme.values_at("type", "scheme", "in")
+      case [scheme["type"], scheme["scheme"]&.downcase, scheme["in"]]
       in ["http", "bearer", _] then ":bearer"
       in ["http", "basic", _] then ":basic"
+      # An OAuth 2 access token is a bearer token, and so is the one an
+      # OpenID Connect flow ends with; where it goes on the request is RFC
+      # 6750 rather than a guess. Obtaining it is the caller's business —
+      # nothing here runs a flow, which is also why the scopes a requirement
+      # lists say nothing this client could act on.
+      in ["oauth2" | "openIdConnect", _, _] then ":bearer"
       in ["apiKey", _, "header"] then "{ header: #{scheme["name"].inspect} }"
+      in ["apiKey", _, "query"] then "{ query: #{scheme["name"].inspect} }"
+      in ["apiKey", _, "cookie"] then "{ cookie: #{scheme["name"].inspect} }"
       else nil
       end
+    end
+
+    # A security requirement is a list of alternatives, any one of which is
+    # enough, each naming schemes that all have to be satisfied. `security: []`
+    # is the operation that takes no credentials, which is not the same as the
+    # key being absent — that one takes the document's.
+    def requirement_for(declared) = declared&.map(&:keys)
+
+    # What one operation actually requires, with the alternatives the client
+    # could not satisfy dropped. Only when none are left is the operation
+    # refused: an operation that documents mutualTLS *or* an API key is one
+    # this client can still call.
+    def security_for(name, op)
+      alternatives = op.key?("security") ? requirement_for(op["security"]) : @default_security
+      return [] if alternatives.nil? || alternatives.empty?
+
+      usable, rejected = alternatives.partition { |schemes| schemes.all? { @schemes.key?(_1) } }
+
+      rejected.each do |schemes|
+        unknown = schemes.reject { @schemes.key?(_1) || @unsupported_schemes.key?(_1) }
+        raise Impossible, "requires #{unknown.first.inspect}, which the document does not declare" if unknown.any?
+      end
+
+      if usable.empty?
+        needed = rejected.flatten.uniq.map { "#{_1} (#{@unsupported_schemes[_1]})" }
+        raise Impossible, "requires #{needed.join(" or ")}, which the runtime has no way to send"
+      end
+      if rejected.any?
+        @notes << "#{name}: sends #{usable.first.join(" and ")}; " \
+                  "the document also allows #{rejected.map { _1.join(" and ") }.join(" or ")}, which is not supported"
+      end
+
+      usable
+    end
+
+    # The shortest spelling of a requirement: a bare scheme name where there is
+    # one alternative naming one scheme, `false` where there is no requirement
+    # at all, and the alternatives written out where there is a choice.
+    def requirement_source(alternatives)
+      return "false" if alternatives.empty?
+      return alternatives.first.first.to_sym.inspect if alternatives.size == 1 && alternatives.first.size == 1
+
+      "[#{alternatives.map { |schemes| "[#{schemes.map { _1.to_sym.inspect }.join(", ")}]" }.join(", ")}]"
+    end
+
+    # Emitted on an operation only where it differs from the client's default,
+    # which is the document's own root requirement.
+    def security_source(alternatives)
+      requirement_source(alternatives) unless alternatives == @default_usable
     end
 
     # An operationId is optional, and plenty of documents that a server
@@ -317,19 +599,28 @@ module Keiyaku
     # all there is to go on. A path parameter becomes `by_x`, which keeps
     # GET /pet and GET /pet/{petId} from arriving at the same method.
     def operation_name(verb, template, op)
-      raw = op["operationId"] || "#{verb}_#{template.gsub(/\{(\w+)\}/) { "by_#{$1}" }}"
-
-      # The separators have to become underscores before snake sees them: it
-      # drops anything that is not a word character, which would run the
-      # segments of a path together.
-      Keiyaku.snake(raw.gsub(/[^a-zA-Z0-9]+/, "_")).squeeze("_").delete_prefix("_").delete_suffix("_")
+      Names.operation(op["operationId"] || "#{verb}_#{template.gsub(/\{(\w+)\}/) { "by_#{$1}" }}")
     end
 
     def build_operation(verb, template, op, inherited_params)
-      name = operation_name(verb, template, op)
-      refuse = ->(reason) { @refusals << Refusal.new(name, reason); return { name:, unsupported: reason } }
-      deps = []
+      label = op["operationId"] || "#{verb.upcase} #{template}"
+      begin
+        name = operation_name(verb, template, op)
+      rescue Impossible => e
+        # Without a name there is nothing to declare, not even a stub: an
+        # `unsupported :class` would define the method that breaks the client.
+        @refusals << Refusal.new(label, e.message)
+        return { name: nil, label:, unsupported: e.message }
+      end
 
+      translate(verb, template, op, inherited_params, name)
+    rescue Impossible => e
+      @refusals << Refusal.new(name, e.message)
+      { name:, unsupported: e.message }
+    end
+
+    def translate(verb, template, op, inherited_params, name)
+      deps = []
       params = (inherited_params + (op["parameters"] || [])).map { resolve(_1) }
       query, header, types = [], {}, {}
 
@@ -340,22 +631,22 @@ module Keiyaku
 
         case param["in"]
         when "path"
-          return refuse.("path parameter #{param["name"]} uses style=#{style}") unless style == "simple"
+          raise Impossible, "path parameter #{param["name"]} uses style=#{style}" unless style == "simple"
         when "query"
-          return refuse.("query parameter #{param["name"]} uses style=#{style}") unless style == "form"
-          return refuse.("query parameter #{param["name"]} uses explode=false") unless explode
+          raise Impossible, "query parameter #{param["name"]} uses style=#{style}" unless style == "form"
+          raise Impossible, "query parameter #{param["name"]} uses explode=false" unless explode
 
           query << "#{param["name"]}#{"!" if param["required"]}"
         when "header"
-          header[param["name"]] = "#{Keiyaku.snake(param["name"])}#{"!" if param["required"]}"
+          header[param["name"]] = "#{Names.parameter(param["name"])}#{"!" if param["required"]}"
         else
-          return refuse.("#{param["in"]} parameters are not supported")
+          raise Impossible, "#{param["in"]} parameters are not supported"
         end
       end
 
       hint = op["x-keiyaku-paginate"]
       if hint && (problem = pagination_problem(hint, query))
-        return refuse.("x-keiyaku-paginate: #{problem}")
+        raise Impossible, "x-keiyaku-paginate: #{problem}"
       end
 
       body = form = multipart = content_type = nil
@@ -374,34 +665,57 @@ module Keiyaku
           body = ":binary"
           content_type = binary
         else
-          return refuse.("request body is #{content.keys.join(", ")}")
+          raise Impossible, "request body is #{content.keys.join(", ")}"
         end
       end
 
-      into, errors = nil, {}
-      (op["responses"] || {}).each do |status, response|
-        response = resolve(response)
-        content = response["content"] || {}
-        json = content.keys.find { _1.include?("json") }
-        schema = json && content[json]["schema"]
-
-        if status.to_i.between?(200, 299)
-          next unless schema
-
-          into ||= type_for(schema, "#{name}_result", deps)
-          @notes << "#{name}: response is #{content.keys.join(", ")}, only #{json} is decoded" if json.nil? && content.any?
-        elsif schema
-          errors[status == "default" ? ":default" : status] = type_for(schema, "#{name}_error", deps)
-        end
+      # The method's own arguments, which is where two parameter names that
+      # normalise to one show up: Ruby would take `foo-bar` and `foo_bar` as
+      # one keyword written twice, and refuse to parse the file.
+      arguments = template.scan(/\{(\w+)\}/).flatten.map { Names.parameter(_1) }
+      arguments << "body" if body || form || multipart
+      arguments += query.map { Names.parameter(_1.delete_suffix("!")) } + header.values.map { _1.delete_suffix("!") }
+      if (duplicate = arguments.tally.find { |_, count| count > 1 })
+        raise Impossible, "two of its parameters are both called #{duplicate.first}"
       end
 
-      if into.nil? && (op["responses"] || {}).any? { |s, r| s.to_i.between?(200, 299) && (resolve(r)["content"] || {}).any? }
-        @notes << "#{name}: success response has no JSON representation, returns the raw body"
-      end
+      into, errors = responses(op, name, deps)
 
       { name:, verb:, template:, query:, header:, types:, body:, form:, multipart:, content_type:, into:,
         errors:, hint:, paginate: (hint && hash_source(hint)),
-        security: (op["security"] == [] ? "false" : nil), summary: op["summary"], deps: }
+        security: security_source(security_for(name, op)), summary: op["summary"], deps: }
+    end
+
+    # One method has one return type, so several success responses have to
+    # agree on it. Where they do not, the alternative to refusing is a method
+    # that casts a 202's job into the 200's user and hands back a model whose
+    # every field is nil.
+    def responses(op, name, deps)
+      into, errors, success = nil, {}, {}
+
+      (op["responses"] || {}).each do |status, response|
+        content = resolve(response)["content"] || {}
+        json = content.keys.find { _1.include?("json") }
+        schema = json && content[json]["schema"]
+
+        if !status.to_i.between?(200, 299)
+          errors[status == "default" ? ":default" : status] = type_for(schema, "#{name}_error", deps) if schema
+        elsif schema
+          # Later ones are named for their status, so that two which turn out
+          # to be the same shape still dedupe onto the first's name, and two
+          # which do not are told apart by the message that refuses them.
+          success[status] = type_for(schema, "#{name}#{"_#{status}" if success.any?}_result", deps)
+        elsif content.any?
+          @notes << "#{name}: #{status} is #{content.keys.join(", ")}, which is returned as the raw body"
+        end
+      end
+
+      if success.values.uniq.size > 1
+        raise Impossible, "its success responses do not agree on a type " \
+                          "(#{success.map { |status, type| "#{status} is #{type}" }.join(", ")})"
+      end
+
+      [success.values.first, errors]
     end
 
     # A hint that names a parameter the operation does not have would produce a
@@ -433,10 +747,29 @@ module Keiyaku
       schema = merge_all_of(resolve(schema))
       return type_for(schema, context, deps) unless schema["properties"]
 
-      hoist(context, schema, deps, upload: true) || ":any"
+      hoist(context, schema, deps, upload: true)
     end
 
     # --- output -------------------------------------------------------------
+
+    # The generator has no business trusting what it just wrote. A constant
+    # that turned out to be a local variable, a method named for a keyword, a
+    # type referring to a model that never got emitted: none of those are
+    # visible in the document, and all of them are visible the moment Ruby
+    # reads the file back. This is the last place they can be reported against
+    # the document rather than against a stack trace at somebody's first call.
+    #
+    # It runs in another process, because loading the client here would mean
+    # the generator's own namespace, and instantiates it, because a method
+    # named for one the client needs is a file that loads and then recurses.
+    def load_check(dir)
+      script = <<~RUBY
+        require #{File.expand_path(File.join(dir, "client")).inspect}
+        #{@namespace}::Client.new(base_url: "https://keiyaku.invalid")
+      RUBY
+      output = IO.popen([RbConfig.ruby, "-I", LIB, "-e", script], err: %i[child out], &:read)
+      $?.success? ? nil : output.strip
+    end
 
     def sorted_models
       ordered, seen = [], {}
@@ -462,12 +795,23 @@ module Keiyaku
       options
     end
 
+    # A schema that contains itself — a tree with child nodes, two models that
+    # name each other — cannot be written as the constant it is in the middle
+    # of defining. The runtime calls a Proc for the type the first time it
+    # casts one, which is late enough for the constant to exist.
+    def lazily(source, defined)
+      referenced = source.scan(/[A-Z][a-zA-Z0-9]*/).uniq & @models.keys
+      referenced.all? { defined.include?(_1) } ? source : "-> { #{source} }"
+    end
+
     def types_source
+      defined = []
       lines = sorted_models.map do |const|
         model = @models[const]
+        defined << const
         next "  #{const} = #{model}" if model.is_a?(String)
 
-        fields = model.fields.map { |field, type| "#{field}: #{type}" }
+        fields = model.fields.map { |field, type| "#{field}: #{lazily(type, defined - [const])}" }
         options = model_options(model).map { ", #{_1}" }.join
         one_line = "  #{const} = Keiyaku.model({ #{fields.join(", ")} }#{options})"
         next one_line if one_line.length <= 110
@@ -489,6 +833,7 @@ module Keiyaku
 
     def client_source(operations)
       lines = operations.map do |op|
+        next "    # cannot be generated: #{op[:label]}: #{op[:unsupported]}" if op[:name].nil?
         next "    unsupported :#{op[:name]}, #{op[:unsupported].inspect}" if op[:unsupported]
 
         args = [":#{op[:name]}", op[:template].inspect]
@@ -501,7 +846,7 @@ module Keiyaku
         args << "into: #{op[:into]}" if op[:into]
         args << "errors: { #{op[:errors].map { |status, type| "#{status} => #{type}" }.join(", ")} }" if op[:errors].any?
         args << "paginate: #{op[:paginate]}" if op[:paginate]
-        args << "security: false" if op[:security]
+        args << "security: #{op[:security]}" if op[:security]
 
         "    #{op[:verb].ljust(6)} #{args.join(", ")}"
       end
@@ -515,11 +860,28 @@ module Keiyaku
         module #{@namespace}
           class Client < Keiyaku::Client
             server #{@spec.dig("servers", 0, "url").inspect}
-        #{"    security(#{@security})\n" if @security}
+        #{security_table}
         #{lines.join("\n")}
           end
         end
       RUBY
+    end
+
+    # The schemes the whole document has, and the requirement that holds
+    # wherever an operation does not state one of its own. Both belong to the
+    # client rather than to any of its methods.
+    def security_table
+      return "" if @schemes.empty?
+
+      table = @schemes.map { |name, declaration| "#{scheme_key(name)} #{declaration}" }
+      default = @default_usable.empty? ? "" : ", default: #{requirement_source(@default_usable)}"
+      "    security({ #{table.join(", ")} }#{default})\n"
+    end
+
+    # The document's own name for the scheme, which is what credentials are
+    # given by, so it is left exactly as the document spells it.
+    def scheme_key(name)
+      name.match?(/\A[a-zA-Z_][a-zA-Z0-9_]*\z/) ? "#{name}:" : "#{name.inspect}:"
     end
 
     RBS_SCALARS = {
@@ -528,6 +890,9 @@ module Keiyaku
     }.freeze
 
     def rbs_type(source)
+      # A recursive type is written as a Proc in the source and as itself here:
+      # RBS has no trouble with a class that mentions its own name.
+      return rbs_type(source[/\A-> \{(.*)\}\z/m, 1].strip) if source.start_with?("-> {")
       return "Array[#{rbs_type(source[1..-2].strip)}]" if source.start_with?("[")
       return "Hash[String, #{rbs_type(source[/=>(.*)}/m, 1].strip)}]" if source.start_with?("{")
 
@@ -584,7 +949,8 @@ module Keiyaku
         RBS
       end
 
-      methods = operations.map do |op|
+      methods = operations.filter_map do |op|
+        next if op[:name].nil?
         next "    def #{op[:name]}: (*untyped) -> bot  # not generated: #{op[:unsupported]}" if op[:unsupported]
 
         types = op[:types]

@@ -112,8 +112,17 @@ module Keiyaku
     json_names = names.to_h { |n| [n, (from[n] || camelize(n)).to_s] }
 
     klass = Data.define(*names) do
+      # Lenient about what is missing, strict about what it does not know.
+      # A field left out is nil, because a schema with thirty optional
+      # properties is not worth thirty keywords at every call site; a field
+      # that is not in the schema is a typo, and the alternative to saying so
+      # is a request that quietly goes out without it.
       def initialize(**kw)
-        super(**self.class.members.to_h { |m| [m, kw[m]] })
+        members = self.class.members
+        unknown = kw.keys - members
+        raise ArgumentError, "unknown keyword#{"s" if unknown.size > 1}: #{unknown.map(&:inspect).join(", ")}" if unknown.any?
+
+        super(**members.to_h { |m| [m, kw[m]] })
       end
 
       def to_json_hash
@@ -289,10 +298,42 @@ module Keiyaku
         subclass.instance_variable_set(:@operations, operations&.dup || {})
         subclass.instance_variable_set(:@server, @server)
         subclass.instance_variable_set(:@security, @security)
+        subclass.instance_variable_set(:@default_security, @default_security)
       end
 
       def server(url = nil) = url ? @server = url : @server
-      def security(scheme = nil) = scheme ? @security = scheme : @security
+
+      # The document's security schemes, by the name it gave them, plus the
+      # requirement that holds for an operation which does not state its own.
+      #
+      #   security({ api_key: { header: "api_key" }, petstore_auth: :bearer },
+      #            default: :api_key)
+      #
+      # A scheme is `:bearer`, `:basic`, or one of `{ header: }`, `{ query: }`,
+      # `{ cookie: }` naming where an API key goes. Credentials are then given
+      # by scheme name, because a document that declares two has no single
+      # "the" credential and picking one for the caller is how a client ends
+      # up sending the wrong header to every operation it has.
+      def security(schemes = nil, default: nil)
+        return @security || {} if schemes.nil?
+
+        @security = schemes.to_h { |name, scheme| [name.to_sym, scheme] }
+        @default_security = requirement(default)
+      end
+
+      def default_security = @default_security || []
+
+      # A security requirement is a list of alternatives, each of which is a
+      # set of schemes that all have to be satisfied: OpenAPI's OR of ANDs.
+      # `false` and `[]` are the operation that takes no credentials at all,
+      # which is not the same as one that does not say.
+      def requirement(declared)
+        case declared
+        when nil, false then []
+        when Symbol then [[declared]]
+        else declared.map { |alternative| Array(alternative).map(&:to_sym) }
+        end
+      end
 
       %i[get post put patch delete head options].each do |verb|
         define_method(verb) do |name, template, **options|
@@ -323,7 +364,10 @@ module Keiyaku
         header_params = header.map { |json, ruby| [json.to_s, ruby.to_s.delete_suffix("!"), ruby.to_s.end_with?("!")] }
 
         operations[name] = {
-          verb:, template:, body:, form:, multipart:, content_type:, into:, errors:, security:, paginate:,
+          verb:, template:, body:, form:, multipart:, content_type:, into:, errors:, paginate:,
+          # nil is the operation that said nothing and takes the document's
+          # requirement; every other spelling is a requirement of its own.
+          security: (security == :inherit ? nil : requirement(security)),
           path: path_params, query: query_params, header: header_params
         }
 
@@ -380,13 +424,41 @@ module Keiyaku
       raise Error, "#{self.class} has no server declared; build it with base_url:" if url.to_s.empty?
 
       @base_url = url.chomp("/")
-      @auth = auth
+      @credentials = __credentials(auth)
       @adapter = adapter || NetHTTPAdapter.new(timeout:)
       @retries = retries
       @logger = logger
     end
 
     private
+
+    # Credentials, by the name the document gave the scheme. A single value is
+    # allowed where there is only one scheme to mean, since naming it would
+    # then be ceremony; with two it is refused rather than assigned to
+    # whichever came first, which is the mistake that sends an API key to an
+    # endpoint that documents OAuth.
+    def __credentials(auth)
+      schemes = self.class.security
+      return {} if auth.nil?
+
+      if auth.is_a?(Hash)
+        credentials = auth.to_h { |name, value| [name.to_sym, value] }
+        unknown = credentials.keys - schemes.keys
+        unless unknown.empty?
+          raise ArgumentError, "#{self.class}: no security scheme named #{unknown.map(&:inspect).join(", ")}; " \
+                               "#{schemes.empty? ? "the document declares none" : "it declares #{schemes.keys.map(&:inspect).join(", ")}"}"
+        end
+
+        credentials
+      elsif schemes.size == 1
+        { schemes.keys.first => auth }
+      elsif schemes.empty?
+        raise ArgumentError, "#{self.class} declares no security schemes; send credentials as a header parameter"
+      else
+        raise ArgumentError, "#{self.class} declares #{schemes.keys.map(&:inspect).join(", ")}; " \
+                             "say which the credential is, as auth: { #{schemes.keys.first}: ... }"
+      end
+    end
 
     def __invoke(...) = __request(...).first
 
@@ -396,16 +468,21 @@ module Keiyaku
     def __request(name, path:, query:, header:, body:, url: nil)
       op = self.class.operations.fetch(name)
 
+      headers = { "Accept" => "application/json" }
+      credentials = []
+      __authenticate(name, op, headers, credentials)
+
       if url
         uri = URI.parse(url)
+        # A URL the server handed back carries the query it wants; the
+        # credentials are ours, and still have to be on it.
+        uri.query = [uri.query, URI.encode_www_form(credentials)].compact.reject(&:empty?).join("&") if credentials.any?
       else
         uri = URI.parse(@base_url + op[:template].gsub(/\{(\w+)\}/) { Serialize.path(path.fetch($1)) })
-        pairs = Serialize.query(query.reject { |_, v| UNSET.equal?(v) })
+        pairs = Serialize.query(query.reject { |_, v| UNSET.equal?(v) }) + credentials
         uri.query = URI.encode_www_form(pairs) unless pairs.empty?
       end
 
-      headers = { "Accept" => "application/json" }
-      headers.merge!(__auth_headers) unless op[:security] == false
       # After the credentials, so an explicit parameter of the same name wins.
       header.each { |k, v| headers[k] = Serialize.stringify(v) unless UNSET.equal?(v) }
 
@@ -542,14 +619,47 @@ module Keiyaku
       raw
     end
 
-    def __auth_headers
-      case [self.class.security, @auth]
-      in [_, nil] then {}
-      in [:bearer, token] then { "Authorization" => "Bearer #{token}" }
-      in [:basic, [user, pass]] then { "Authorization" => "Basic #{["#{user}:#{pass}"].pack("m0")}" }
-      in [{ header: name }, token] then { name.to_s => token }
-      in [{ query: _ }, _] then {}
-      else {}
+    # Put on the request exactly what this operation says it needs, which is
+    # not necessarily what the document's other operations need. Alternatives
+    # are tried in the order the document wrote them, preferring one that
+    # actually authenticates: `security: [{}, { api_key: [] }]` is an
+    # operation that will serve anonymous callers but should still recognise
+    # one who has a key.
+    def __authenticate(name, op, headers, credentials)
+      alternatives = op[:security] || self.class.default_security
+      return if alternatives.empty?
+
+      chosen = alternatives.reject(&:empty?).find { |schemes| schemes.all? { @credentials.key?(_1) } }
+      chosen ||= [] if alternatives.any?(&:empty?)
+
+      # A client built with no credentials at all is taken at its word: plenty
+      # of servers do not enforce what their document declares, and refusing
+      # to make the call would be this library deciding otherwise. One built
+      # with some, but not the ones this operation names, is a mistake worth
+      # more than the 401 it would come back with.
+      if chosen.nil?
+        return if @credentials.empty?
+
+        raise Error, "#{self.class}##{name} requires #{alternatives.map { _1.join(" and ") }.join(" or ")}, " \
+                     "and was built with #{@credentials.keys.join(", ")}"
+      end
+
+      chosen.each { __apply_credential(_1, headers, credentials) }
+    end
+
+    def __apply_credential(scheme, headers, credentials)
+      case [self.class.security.fetch(scheme), @credentials.fetch(scheme)]
+      in [:bearer, token] then headers["Authorization"] = "Bearer #{token}"
+      in [:basic, secret]
+        pair = secret.is_a?(Array) ? secret.join(":") : secret.to_s
+        headers["Authorization"] = "Basic #{[pair].pack("m0")}"
+      in [{ header: key }, token] then headers[key.to_s] = Serialize.stringify(token)
+      in [{ query: key }, token] then credentials << [key.to_s, Serialize.stringify(token)]
+      in [{ cookie: key }, token]
+        headers["Cookie"] = [headers["Cookie"], "#{key}=#{Serialize.stringify(token)}"].compact.join("; ")
+      else
+        raise Error, "#{self.class}: #{scheme} is declared as #{self.class.security.fetch(scheme).inspect}, " \
+                     "which is not a scheme this runtime knows how to send"
       end
     end
   end

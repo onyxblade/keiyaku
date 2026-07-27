@@ -21,8 +21,56 @@ RSpec.describe "building a request" do
       expect(request.content_type).to eq "application/json"
     end
 
-    it "sends the security scheme's header" do
+    # POST /pet documents petstore_auth and nothing else, so this is the one
+    # credential it may carry. Sending the API key as well — which is what
+    # picking a scheme per document rather than per operation amounts to —
+    # would put a credential on the wire that the endpoint never asked for.
+    it "sends the credential the operation documents" do
+      expect(request.headers["authorization"]).to eq "Bearer t0ken"
+    end
+
+    it "sends no credential the operation does not document" do
+      expect(request.headers).not_to include("api_key")
+    end
+  end
+
+  describe "credentials" do
+    # GET /store/inventory takes the API key; GET /pet/{petId} takes either,
+    # and the document lists the key first.
+    it "sends the scheme the operation asks for" do
+      petstore.get_inventory
+      expect(sent.headers["api_key"]).to eq "secret-key"
+    end
+
+    it "takes the first alternative it can satisfy" do
+      petstore.get_pet_by_id(5)
+      request = sent
       expect(request.headers["api_key"]).to eq "secret-key"
+      expect(request.headers).not_to include("authorization")
+    end
+
+    # The user operations document no security at all.
+    it "sends none where the operation requires none" do
+      petstore.login_user(username: "kaya", password: "x")
+      expect(sent.headers.keys).not_to include("api_key", "authorization")
+    end
+
+    it "refuses a credential named for a scheme the document does not declare" do
+      expect { Petstore::Client.new(base_url: "http://unused.test", auth: { api_ky: "typo" }) }
+        .to raise_error(ArgumentError, /no security scheme named :api_ky/)
+    end
+
+    # With two schemes there is no "the" credential, and assigning one to
+    # whichever scheme came first is how the wrong header gets sent.
+    it "refuses a bare credential where the document declares more than one scheme" do
+      expect { Petstore::Client.new(base_url: "http://unused.test", auth: "secret-key") }
+        .to raise_error(ArgumentError, /say which the credential is/)
+    end
+
+    it "says which credential is missing rather than sending the request without it" do
+      client = Petstore::Client.new(base_url: "http://unused.test", auth: { api_key: "secret-key" })
+      expect { client.add_pet(Petstore::Pet.new(name: "Nori", photo_urls: [])) }
+        .to raise_error(Keiyaku::Error, /requires petstore_auth/)
     end
   end
 

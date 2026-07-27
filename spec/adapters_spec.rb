@@ -40,7 +40,7 @@ RSpec.describe "the adapter seam" do
         client.add_pet(Petstore::Pet.new(name: "Nori", photo_urls: []))
         request = sent
         expect(JSON.parse(request.body)["name"]).to eq "Nori"
-        expect(request.headers["api_key"]).to eq "secret-key"
+        expect(request.headers["authorization"]).to eq "Bearer t0ken"
       end
 
       it "maps 4xx to an exception" do

@@ -252,8 +252,10 @@ RSpec.describe Keiyaku::Emitter do
       end
     end
 
-    it "says so when two operations would land on one name" do
-      emitter = generate(spec(<<~YAML))
+    # Whichever was written second would take the method, and every call meant
+    # for the other would go to a route it does not name.
+    it "refuses both when two operations would land on one name" do
+      emitter = generate(spec(<<~YAML)) do |_, dir|
         /things:
           get:
             operationId: listThings
@@ -263,8 +265,315 @@ RSpec.describe Keiyaku::Emitter do
             operationId: list_things
             responses: { "200": { description: ok } }
       YAML
+        expect(File.read(File.join(dir, "client.rb"))).to include("unsupported :list_things").once
+      end
 
-      expect(emitter.notes).to include(/list_things names 2 operations/)
+      expect(emitter.refusals.map(&:reason)).to contain_exactly(/2 operations map to this name/)
+    end
+  end
+
+  # Which scheme an operation uses is a property of the operation. Taking the
+  # first one the document declares and sending it everywhere is how a client
+  # comes to put an API key on the eight endpoints that document OAuth.
+  describe "security" do
+    def secured(operations, root: "\nsecurity:\n  - adminKey: []")
+      <<~YAML
+        openapi: 3.1.0
+        info: { title: Refused, version: "1" }
+        servers: [{ url: "https://refused.test" }]#{root}
+        components:
+          securitySchemes:
+            adminKey: { type: apiKey, in: header, name: X-Admin-Key }
+            bearer: { type: http, scheme: bearer }
+            mtls: { type: mutualTLS }
+        paths:
+        #{operations.gsub(/^/, "  ").rstrip}
+      YAML
+    end
+
+    def client(document)
+      source = nil
+      generate(document) { |_, dir| source = File.read(File.join(dir, "client.rb")) }
+      source
+    end
+
+    it "declares every scheme by the name the document gave it" do
+      expect(client(secured("/a:\n  get:\n    responses: { \"200\": { description: ok } }")))
+        .to include(%(security({ adminKey: { header: "X-Admin-Key" }, bearer: :bearer }, default: :adminKey)))
+    end
+
+    it "leaves an operation that takes the document's requirement alone" do
+      expect(client(secured("/a:\n  get:\n    responses: { \"200\": { description: ok } }")))
+        .to include(%(get    :get_a, "/a"\n))
+    end
+
+    it "states the one an operation overrides it with" do
+      expect(client(secured(<<~YAML))).to include("security: :bearer")
+        /a:
+          get:
+            security: [{ bearer: [] }]
+            responses: { "200": { description: ok } }
+      YAML
+    end
+
+    it "writes out a choice between schemes" do
+      expect(client(secured(<<~YAML))).to include("security: [[:adminKey], [:bearer]]")
+        /a:
+          get:
+            security: [{ adminKey: [] }, { bearer: [] }]
+            responses: { "200": { description: ok } }
+      YAML
+    end
+
+    it "writes out schemes that are required together" do
+      expect(client(secured(<<~YAML))).to include("security: [[:adminKey, :bearer]]")
+        /a:
+          get:
+            security: [{ adminKey: [], bearer: [] }]
+            responses: { "200": { description: ok } }
+      YAML
+    end
+
+    it "says so when an operation takes none and the document says otherwise" do
+      expect(client(secured("/a:\n  get:\n    security: []\n    responses: { \"200\": { description: ok } }")))
+        .to include("security: false")
+    end
+
+    # An OAuth 2 access token goes in the same header a bearer token does, so
+    # there is nothing to refuse; obtaining it was never this client's job.
+    it "sends an OAuth 2 token as the bearer token it is" do
+      document = secured("/a:\n  get:\n    responses: { \"200\": { description: ok } }")
+                 .sub("bearer: { type: http, scheme: bearer }", "bearer: { type: oauth2, flows: {} }")
+      expect(client(document)).to include("bearer: :bearer")
+    end
+
+    it "refuses an operation whose only scheme has no way to be sent" do
+      emitter = generate(secured(<<~YAML))
+        /a:
+          get:
+            security: [{ mtls: [] }]
+            responses: { "200": { description: ok } }
+      YAML
+
+      expect(emitter.refusals.first.reason).to include("requires mtls (mutualTLS), which the runtime has no way to send")
+    end
+
+    # Half a requirement is still enough to call the operation with.
+    it "keeps the alternative it can satisfy, and says what it dropped" do
+      emitter = generate(secured(<<~YAML)) do |_, dir|
+        /a:
+          get:
+            security: [{ mtls: [] }, { bearer: [] }]
+            responses: { "200": { description: ok } }
+      YAML
+        expect(File.read(File.join(dir, "client.rb"))).to include("security: :bearer")
+      end
+
+      expect(emitter.notes).to include(/the document also allows mtls, which is not supported/)
+    end
+
+    it "refuses an operation naming a scheme the document never declared" do
+      emitter = generate(secured(<<~YAML))
+        /a:
+          get:
+            security: [{ ghost: [] }]
+            responses: { "200": { description: ok } }
+      YAML
+
+      expect(emitter.refusals.first.reason).to include(%(requires "ghost", which the document does not declare))
+    end
+  end
+
+  # A name that is not a name is not visible in the document at all: it is
+  # visible when Ruby reads the file, which is too late to say which schema
+  # caused it.
+  describe "a name Ruby will not take" do
+    # One operation returning the first of the given component schemas.
+    def named(schemas, returns: schemas.keys.first)
+      <<~YAML
+        openapi: 3.1.0
+        info: { title: Refused, version: "1" }
+        servers: [{ url: "https://refused.test" }]
+        components:
+          schemas:
+        #{schemas.map { |name, schema| "    #{name}:\n#{schema.gsub(/^/, "      ").rstrip}" }.join("\n")}
+        paths:
+          /things:
+            get:
+              operationId: listThings
+              responses:
+                "200":
+                  description: ok
+                  content:
+                    application/json: { schema: { $ref: "#/components/schemas/#{returns}" } }
+      YAML
+    end
+
+    it "makes a constant out of one that is not one already" do
+      generate(named({ "problem-details" => "type: object\nproperties: { title: { type: string } }" })) do |_, dir|
+        expect(File.read(File.join(dir, "types.rb"))).to include("ProblemDetails = Keiyaku.model")
+      end
+    end
+
+    # Emitting the second over the first would leave every operation typed as
+    # the first casting into a model that is no longer the one it named.
+    it "refuses two schemas that want one constant" do
+      emitter = generate(named({ "Pet-Owner" => "type: object\nproperties: { name: { type: string } }",
+                                 "PetOwner" => "type: object\nproperties: { id: { type: integer } }" }))
+
+      expect(emitter.refusals.first.reason).to include(%(schemas "Pet-Owner" and "PetOwner" both map to PetOwner))
+    end
+
+    it "refuses an operationId that is a Ruby keyword, without declaring it" do
+      emitter = generate(document("operationId: class\nresponses: { \"200\": { description: ok } }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb"))).to include("# cannot be generated: class")
+      end
+
+      expect(emitter.refusals.first.reason).to include("is a Ruby keyword")
+    end
+
+    it "refuses an operationId that cannot start a method name" do
+      emitter = generate(document("operationId: 2faVerify\nresponses: { \"200\": { description: ok } }"))
+      expect(emitter.refusals.first.reason).to include("cannot be a Ruby method name")
+    end
+
+    it "refuses two parameters that become one argument" do
+      emitter = generate(document(<<~YAML))
+        operationId: search
+        parameters:
+          - { name: foo-bar, in: query, schema: { type: string } }
+          - { name: foo_bar, in: query, schema: { type: string } }
+        responses: { "200": { description: ok } }
+      YAML
+
+      expect(emitter.refusals.first.reason).to include("two of its parameters are both called foo_bar")
+    end
+
+    # A member is reached through a dot and written as a label, and both take
+    # a keyword. Refusing `end` would refuse every document with a date range
+    # in it, for a problem Ruby does not have.
+    it "keeps a property named for a keyword" do
+      generate(named({ "Span" => "type: object\nproperties: { start: { type: string }, end: { type: string } }" })) do |emitter, dir|
+        expect(File.read(File.join(dir, "types.rb"))).to include("end: String")
+        expect(emitter.refusals).to be_empty
+      end
+    end
+
+    # This one is not spare: the model is what casts, serializes and pattern
+    # matches, and `to_h` is how it does two of those.
+    it "refuses a property named for a method the model needs" do
+      emitter = generate(named({ "Span" => "type: object\nproperties: { to_h: { type: string } }" }))
+      expect(emitter.refusals.first.reason).to include(%(property "to_h" is a method the model needs))
+    end
+
+    it "refuses two properties that become one field" do
+      emitter = generate(returning(<<~YAML))
+        type: object
+        properties:
+          photoUrls: { type: array, items: { type: string } }
+          photo_urls: { type: array, items: { type: string } }
+      YAML
+
+      expect(emitter.refusals.first.reason).to include("both become photo_urls")
+    end
+  end
+
+  # Everything above is a mistake the generator knows how to look for. The
+  # ones it does not are still in the file it wrote, so it reads it back.
+  describe "the check that the output loads" do
+    it "passes on a document it could translate" do
+      emitter = generate(document("operationId: listThings\nresponses: { \"200\": { description: ok } }"))
+      expect(emitter.broken).to be_nil
+    end
+
+    it "reports source Ruby cannot read, rather than leaving it to be required" do
+      generate(document("operationId: listThings\nresponses: { \"200\": { description: ok } }")) do |emitter, dir|
+        File.write(File.join(dir, "client.rb"), %(raise "the generated file was read back"\n))
+        expect(emitter.send(:load_check, dir)).to include("the generated file was read back")
+      end
+    end
+  end
+
+  # `#/components/schemas/Pet` is a name in this document. `common.yaml#/Pet`
+  # is a name in one the generator cannot see, and taking its last segment
+  # would type the operation as whatever local schema happens to be called
+  # Pet — a client that loads, runs, and decodes one schema as another.
+  describe "a $ref" do
+    it "into another file is refused" do
+      emitter = generate(returning('$ref: "common.yaml#/components/schemas/Pet"'))
+      expect(emitter.refusals.first.reason).to include("is not local to this document")
+    end
+
+    it "that resolves to nothing is refused" do
+      emitter = generate(returning('$ref: "#/components/schemas/Nonexistent"'))
+      expect(emitter.refusals.first.reason).to include("does not resolve")
+    end
+  end
+
+  # One method has one return type, so the responses have to agree on it.
+  describe "more than one success response" do
+    def two_successes(second)
+      document(<<~YAML)
+        operationId: createUser
+        responses:
+          "200":
+            description: created
+            content:
+              application/json: { schema: { type: object, properties: { id: { type: integer } } } }
+          "202":
+            description: queued
+            content:
+              application/json: { schema: #{second} }
+      YAML
+    end
+
+    it "is refused when they disagree" do
+      emitter = generate(two_successes("{ type: object, properties: { jobId: { type: string } } }"))
+      expect(emitter.refusals.first.reason).to include("its success responses do not agree on a type")
+    end
+
+    it "is accepted when they are the same shape" do
+      emitter = generate(two_successes("{ type: object, properties: { id: { type: integer } } }"))
+      expect(emitter.refusals).to be_empty
+    end
+  end
+
+  # The mechanism exists in the runtime, which evaluates a Proc for a type the
+  # first time it casts one; without it the constant is referred to in the
+  # middle of its own definition, and types.rb does not load at all.
+  describe "a schema that contains itself" do
+    let(:tree) do
+      <<~YAML
+        openapi: 3.1.0
+        info: { title: Refused, version: "1" }
+        servers: [{ url: "https://refused.test" }]
+        components:
+          schemas:
+            Node:
+              type: object
+              properties:
+                name: { type: string }
+                children: { type: array, items: { $ref: "#/components/schemas/Node" } }
+        paths:
+          /nodes:
+            get:
+              operationId: getNode
+              responses:
+                "200":
+                  description: ok
+                  content:
+                    application/json: { schema: { $ref: "#/components/schemas/Node" } }
+      YAML
+    end
+
+    after { Object.send(:remove_const, :Recursive) if Object.const_defined?(:Recursive) }
+
+    it "is typed lazily, and casts all the way down" do
+      generate(tree, namespace: "Recursive") do |_, dir|
+        load File.join(dir, "types.rb")
+        cast = Recursive::Node.cast({ "name" => "root", "children" => [{ "name" => "leaf" }] })
+        expect(cast.children.first).to be_a(Recursive::Node).and have_attributes(name: "leaf")
+      end
     end
   end
 

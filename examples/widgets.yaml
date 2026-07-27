@@ -4,6 +4,11 @@ info:
   version: "1.0"
 servers:
   - url: https://api.widgets.test/v1
+# Declared for the whole document, which is where most documents put it and
+# which nothing else here exercises: the Petstore states a requirement on
+# every operation, and the sidecar has none at all.
+security:
+  - bearerAuth: []
 components:
   securitySchemes:
     bearerAuth:

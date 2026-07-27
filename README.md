@@ -22,14 +22,14 @@ The whole client:
 module Petstore
   class Client < Keiyaku::Client
     server "https://petstore3.swagger.io/api/v3"
-    security({ header: "api_key" })
+    security({ petstore_auth: :bearer, api_key: { header: "api_key" } })
 
-    put    :update_pet, "/pet", body: Pet, into: Pet
-    post   :add_pet, "/pet", body: Pet, into: Pet
-    get    :find_pets_by_status, "/pet/findByStatus", query: %i[status!], into: [Pet]
-    get    :get_pet_by_id, "/pet/{petId}", into: Pet
-    delete :delete_pet, "/pet/{petId}", header: { "api_key" => :api_key }
-    get    :get_inventory, "/store/inventory", into: { String => Integer }
+    put    :update_pet, "/pet", body: Pet, into: Pet, security: :petstore_auth
+    post   :add_pet, "/pet", body: Pet, into: Pet, security: :petstore_auth
+    get    :find_pets_by_status, "/pet/findByStatus", query: %i[status!], into: [Pet], security: :petstore_auth
+    get    :get_pet_by_id, "/pet/{petId}", into: Pet, security: [[:api_key], [:petstore_auth]]
+    delete :delete_pet, "/pet/{petId}", header: { "api_key" => :api_key }, security: :petstore_auth
+    get    :get_inventory, "/store/inventory", into: { String => Integer }, security: :api_key
     post   :create_users_with_list_input, "/user/createWithList", body: [User], into: User
     # ...
   end
@@ -69,7 +69,7 @@ Three files land in the output directory: `types.rb`, `client.rb`, and an
 output, and reading the diff is how you see what changed in an API. Then:
 
 ```ruby
-client = Petstore::Client.new(auth: ENV["PETSTORE_KEY"])
+client = Petstore::Client.new(auth: { api_key: ENV["PETSTORE_KEY"] })
 
 pet = client.get_pet_by_id(5)          # => Petstore::Pet
 pet.photo_urls                         # camelCase mapped to snake_case
@@ -200,6 +200,35 @@ refused to generate 1 operation(s):
 Calling one raises Keiyaku::Unsupported. Write those by hand.
 ```
 
+What it refuses is anything where the generated code would be a guess: a name
+Ruby will not take or that two things want at once, a `$ref` into a file it
+cannot see, success responses that do not agree on a type, a security scheme
+it has no way to send. Then, because the mistakes it does not know to look for
+are still in the file it wrote, it reads that file back in another process and
+reports what will not load as a bug in itself.
+
+## Credentials
+
+An operation is authenticated the way the document says that operation is
+authenticated — which is not always the way the one above it is. The Petstore
+declares two schemes and uses them differently across nineteen operations, so
+credentials arrive by the name the document gave the scheme:
+
+```ruby
+client = Petstore::Client.new(auth: { api_key: ENV["PETSTORE_KEY"] })
+
+client.get_inventory          # api_key: ...
+client.get_pet_by_id(5)       # api_key: ..., the first of two alternatives
+client.add_pet(pet)           # raises: this one documents petstore_auth
+```
+
+A single value is allowed where the document declares one scheme, since naming
+it would be ceremony. With two it is refused, because assigning it to whichever
+came first is exactly how a client ends up sending an API key to the endpoints
+that document OAuth. A client built with no credentials at all is taken at its
+word and sends none: plenty of servers do not enforce what their document
+declares, and that is not this library's call to make.
+
 ## Documents nobody wrote by hand
 
 A document a server produced from its own routes tends to be missing the things
@@ -211,8 +240,9 @@ the service prints it — ten routes, and every one of these true at once:
   method with, so `POST /didcomm/pack/encrypted` becomes
   `post_didcomm_pack_encrypted` and a path parameter becomes `by_id`, which
   keeps `GET /things` and `GET /things/{id}` apart. Two operations that would
-  still land on one name are a note, since the second would silently replace
-  the first.
+  still land on one name are both refused, since whichever was written second
+  would take the method and every call meant for the other would go to a route
+  it does not name.
 - **No `components`.** Every schema is then written out again under each
   operation. Two that are structurally identical become one model, named for
   where it first appeared — otherwise a document with nine operations over the
@@ -229,12 +259,12 @@ so far came from pointing it at that file rather than at the two below.
 
 ## Tests
 
-`rake` regenerates the examples, validates their RBS, and runs the specs — 102
+`rake` regenerates the examples, validates their RBS, and runs the specs — 135
 RSpec examples covering name mapping in both directions, nested and array
 models, pattern matching, query array explosion, header parameters overriding
-credentials, typed error bodies, binary and multipart request bodies,
-discriminated unions, all four pagination strategies, and cast errors naming
-the offending field.
+credentials, per-operation security, typed error bodies, binary and multipart
+request bodies, discriminated unions, all four pagination strategies, and cast
+errors naming the offending field.
 
 Nothing is stubbed. The generated clients talk to a real HTTP server on a real
 socket ([`spec/support/test_server.rb`](spec/support/test_server.rb)), which
@@ -271,6 +301,13 @@ matrix runs 3.2, the floor `Data.define` puts the gemspec at, through 4.0.
 
 - `deepObject` query parameters (`filter[status]=x`) are still refused, as are
   `explode: false` ones
+- the document has to be one file. A `$ref` into another is refused rather
+  than resolved, so anything split up has to be bundled first — by something
+  else, since nothing here fetches a URL to find out what a type is
+- `readOnly` and `writeOnly` are not read, so one schema is one model in both
+  directions. Until they are, `required:` cannot be enforced when a model is
+  constructed — the Petstore's `Pet.id` is required in a response and has no
+  business being set on a request, and one flag cannot mean both
 - pagination has to be declared in the document; for a spec you do not control
   there is no hints file to declare it in
 - regeneration overwrites wholesale; there is no merge strategy for hand edits,

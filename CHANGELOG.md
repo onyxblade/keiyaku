@@ -6,9 +6,16 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
 3.0 or 3.1 document.
 
 - `Keiyaku::Client` DSL: one line per operation, real method arity
-- `Keiyaku.model`: schemas as `Data` subclasses, with lenient casting
+- `Keiyaku.model`: schemas as `Data` subclasses. Casting a response ignores
+  fields the document never mentioned; constructing one refuses a keyword it
+  does not know, which is a typo rather than a server that has moved on
 - `style`/`explode` defaults (`form` for query, `simple` for path and header)
-- API key, bearer and basic security schemes
+- security is compiled per operation, from the operation's own requirement or
+  the document's: alternatives, schemes required together, and `security: []`.
+  Credentials are given by scheme name, and a scheme nothing can send refuses
+  only the operations that require it
+- API key in a header, query parameter or cookie; bearer and basic; OAuth 2
+  and OpenID Connect access tokens, which are bearer tokens
 - typed error bodies, mapped to `Keiyaku::ClientError` / `ServerError`
 - constructs that cannot be translated faithfully are refused at generation
   time and raise `Keiyaku::Unsupported` if called
@@ -28,7 +35,21 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
   instead of degrading to `:any`
 - structurally identical inline schemas are emitted as one model
 - operations with no `operationId` are named for their verb and path; two that
-  would land on one name are a note
+  would land on one name are both refused
 - a document with no `servers` is a note, and building such a client without
   `base_url:` raises rather than failing later inside `URI`
 - a tuple (`items` as a list, or `prefixItems`) no longer crashes the generator
+- every Ruby name goes through one table, which refuses what Ruby will not
+  take: a schema whose name is not a constant, an `operationId` that is a
+  keyword, two schemas or two parameters or two properties that normalise onto
+  one name
+- several success responses have to agree on a type, or the operation is
+  refused rather than casting one status's body into another's model
+- `$ref` is resolved with JSON Pointer escaping and only within the document:
+  one into another file is refused rather than silently naming a local schema
+  that happens to end in the same segment
+- a schema that contains itself is typed lazily instead of referring to a
+  constant in the middle of its own definition
+- the generator loads what it wrote, in another process, and reports a file
+  Ruby cannot read back as a bug in itself rather than leaving it to be found
+  at the first `require`
