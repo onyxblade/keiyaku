@@ -262,11 +262,10 @@ the service prints it — ten routes, and every one of these true at once:
   would take the method and every call meant for the other would go to a route
   it does not name.
 - **No `components`.** Every schema is then written out again under each
-  operation. Two that are structurally identical become one model, named for
-  where it first appeared — otherwise a document with nine operations over the
-  same four shapes gets thirty-odd types. The name is the weak part: it records
-  where the generator first walked rather than what the type is, so the error
-  body shared by eight routes is called after whichever one came first.
+  operation, and each copy becomes its own model named after the operation it
+  was written under. Ten routes over four shapes is seventy-one types rather
+  than the thirty-one that matching them up by structure would give, and the
+  forty extra are the price of never having chosen a name — see below.
 - **No `servers`.** The address has to come from the application, so that is a
   note at generation time and a `Keiyaku::Error` naming the client if one is
   built without `base_url:`.
@@ -275,9 +274,34 @@ A document like this is worth more as a test than one written for the purpose,
 because it was not written for the purpose. Every defect found in the generator
 so far came from pointing it at that file rather than at the two below.
 
+## Where the names come from
+
+Every type is named by reading the document, and the generator never picks
+between two names that both fit. Where the document names a type — anything in
+`components/schemas` — the name is its own. Where it does not, the position the
+schema was written in names it: an operation's request body is that operation
+plus `Body`, a success response plus `Result`, an error plus `Error`, and a
+property nested inside one of those is its path down from it.
+
+Two schemas that happen to be structurally identical are still two types. This
+is the rule that costs the most — Stripe writes out all 601 of its request
+bodies inline, and matching them up drops 5,014 models to 2,306 — and it is
+still the right way round, because the name a structural match keeps is a
+record of where the generator walked first rather than of anything in the
+document. That is how 56 unrelated Stripe operations came to share a body type
+called `PostAccountsAccountLoginLinksBody`, 25 more a type called after a card
+mandate, and how the sidecar's `POST /did/resolve` came to declare its own
+success type as its 400 body — a caller rescuing the error got a value whose
+class said the call had succeeded.
+
+The one thing that is still shared is a name derived twice. An operation's 400
+and its 404 are both `#{name}Error`, and where the document gives them the same
+shape they are one model; where it does not, the operation is refused rather
+than one of the two silently losing its body.
+
 ## Tests
 
-`rake` regenerates the examples, validates their RBS, and runs the specs — 166
+`rake` regenerates the examples, validates their RBS, and runs the specs — 167
 RSpec examples covering name mapping in both directions, nested and array
 models, pattern matching, query array explosion, header parameters overriding
 credentials, per-operation security, typed error bodies, binary, text and
@@ -303,8 +327,8 @@ GitHub's document turned one up.
 A third, [`examples/sidecar.json`](examples/sidecar.json), was not written for
 this at all — see above. Its client is generated and its RBS validated on every
 run like the others, and [`spec/sidecar_spec.rb`](spec/sidecar_spec.rb) asserts
-on the result through `Client.operations` rather than through type names, since
-the names of deduplicated models are the part still unsettled.
+that every one of its types is named after the operation it was written under,
+which is the whole of the naming rule on a document that names nothing itself.
 
 The optional adapters are covered by the same suite, over the same socket, when
 faraday and http.rb happen to be installed. They are marked pending otherwise,

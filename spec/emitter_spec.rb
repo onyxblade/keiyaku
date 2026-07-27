@@ -375,7 +375,9 @@ RSpec.describe Keiyaku::Emitter do
   end
 
   # A document with no components writes every schema out again under each
-  # operation, which would otherwise be a model per copy.
+  # operation. Each copy is named for the operation it was written under,
+  # because that name is a reading of the document and picking one of the two
+  # to stand for both would be the generator choosing.
   describe "the same schema written out twice" do
     let(:twice) do
       body = <<~YAML
@@ -403,16 +405,16 @@ RSpec.describe Keiyaku::Emitter do
       YAML
     end
 
-    it "is emitted once" do
+    it "is emitted once per operation that writes it out" do
       generate(twice) do |_, dir|
-        expect(File.read(File.join(dir, "types.rb")).scan(/Keiyaku\.model/).size).to eq 1
+        expect(File.read(File.join(dir, "types.rb")).scan(/Keiyaku\.model/).size).to eq 2
       end
     end
 
-    it "is named for where it first appeared, and both operations use it" do
+    it "gives each operation a type named after that operation" do
       generate(twice) do |_, dir|
         expect(File.read(File.join(dir, "client.rb")).scan(/body: (\w+)/).flatten)
-          .to eq %w[CreateThingBody CreateThingBody]
+          .to eq %w[CreateThingBody CreateOtherBody]
       end
     end
 

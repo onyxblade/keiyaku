@@ -19,6 +19,10 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
 - typed error bodies, mapped to `Keiyaku::ClientError` / `ServerError`
 - constructs that cannot be translated faithfully are refused at generation
   time and raise `Keiyaku::Unsupported` if called
+- inline schemas are named for where the document wrote them — the operation
+  for a body or a response, the path down for a nested property — and two that
+  are structurally identical stay two types, since the name a structural match
+  keeps records where the generator walked rather than what the document says
 - `oneOf`/`anyOf` with a `discriminator` becomes a `Keiyaku::OneOf`, including
   the document's `mapping`; without one it stays `:any` and says so
 - `multipart/form-data` request bodies, with `Keiyaku::Upload` for file parts

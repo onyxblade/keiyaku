@@ -91,11 +91,62 @@ module Sidecar
     error: String,
     message: String
   }, required: %i[error message])
+  PostDidcommPackSignedBodyMessageAttachments = Keiyaku.model({
+    data: :any,
+    id: String,
+    description: String,
+    filename: String,
+    media_type: String,
+    format: String,
+    lastmod_time: Float,
+    byte_count: Float
+  }, required: %i[data], from: { media_type: "media_type", lastmod_time: "lastmod_time", byte_count: "byte_count" })
+  PostDidcommPackSignedBodyMessage = Keiyaku.model({
+    id: String,
+    typ: String,
+    type: String,
+    body: :any,
+    from: String,
+    to: [String],
+    thid: String,
+    pthid: String,
+    created_time: Float,
+    expires_time: Float,
+    from_prior: String,
+    attachments: [PostDidcommPackSignedBodyMessageAttachments]
+  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" })
+  PostDidcommPackSignedBodyDidDocsVerificationMethod = Keiyaku.model({
+    id: String,
+    type: String,
+    controller: String,
+    public_key_jwk: { String => :any },
+    public_key_multibase: String,
+    public_key_base58: String
+  }, required: %i[id type controller])
+  PostDidcommPackSignedBodyDidDocsService = Keiyaku.model({
+    id: String,
+    type: String,
+    service_endpoint: :any
+  }, required: %i[id type service_endpoint])
+  PostDidcommPackSignedBodyDidDocs = Keiyaku.model({
+    id: String,
+    key_agreement: [String],
+    authentication: [String],
+    verification_method: [PostDidcommPackSignedBodyDidDocsVerificationMethod],
+    service: [PostDidcommPackSignedBodyDidDocsService]
+  }, required: %i[id key_agreement authentication verification_method service])
+  PostDidcommPackSignedBodySecrets = Keiyaku.model({
+    id: String,
+    type: String,
+    private_key_jwk: { String => :any },
+    private_key_multibase: String,
+    private_key_base58: String
+  }, required: %i[id type])
   PostDidcommPackSignedBody = Keiyaku.model({
-    message: PostDidcommPackEncryptedBodyMessage,
+    message: PostDidcommPackSignedBodyMessage,
     sign_by: String,
-    did_docs: [PostDidcommPackEncryptedBodyDidDocs],
-    secrets: [PostDidcommPackEncryptedBodySecrets]
+    did_docs: [PostDidcommPackSignedBodyDidDocs],
+    secrets: [PostDidcommPackSignedBodySecrets]
   }, required: %i[message sign_by], from: { sign_by: "sign_by" })
   PostDidcommPackSignedResultMetadata = Keiyaku.model({
     sign_by_kid: String
@@ -104,21 +155,121 @@ module Sidecar
     packed_message: String,
     metadata: PostDidcommPackSignedResultMetadata
   }, required: %i[packed_message metadata])
+  PostDidcommPackSignedError = Keiyaku.model({ error: String, message: String }, required: %i[error message])
+  PostDidcommPackPlaintextBodyMessageAttachments = Keiyaku.model({
+    data: :any,
+    id: String,
+    description: String,
+    filename: String,
+    media_type: String,
+    format: String,
+    lastmod_time: Float,
+    byte_count: Float
+  }, required: %i[data], from: { media_type: "media_type", lastmod_time: "lastmod_time", byte_count: "byte_count" })
+  PostDidcommPackPlaintextBodyMessage = Keiyaku.model({
+    id: String,
+    typ: String,
+    type: String,
+    body: :any,
+    from: String,
+    to: [String],
+    thid: String,
+    pthid: String,
+    created_time: Float,
+    expires_time: Float,
+    from_prior: String,
+    attachments: [PostDidcommPackPlaintextBodyMessageAttachments]
+  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" })
+  PostDidcommPackPlaintextBodyDidDocsVerificationMethod = Keiyaku.model({
+    id: String,
+    type: String,
+    controller: String,
+    public_key_jwk: { String => :any },
+    public_key_multibase: String,
+    public_key_base58: String
+  }, required: %i[id type controller])
+  PostDidcommPackPlaintextBodyDidDocsService = Keiyaku.model({
+    id: String,
+    type: String,
+    service_endpoint: :any
+  }, required: %i[id type service_endpoint])
+  PostDidcommPackPlaintextBodyDidDocs = Keiyaku.model({
+    id: String,
+    key_agreement: [String],
+    authentication: [String],
+    verification_method: [PostDidcommPackPlaintextBodyDidDocsVerificationMethod],
+    service: [PostDidcommPackPlaintextBodyDidDocsService]
+  }, required: %i[id key_agreement authentication verification_method service])
   PostDidcommPackPlaintextBody = Keiyaku.model({
-    message: PostDidcommPackEncryptedBodyMessage,
-    did_docs: [PostDidcommPackEncryptedBodyDidDocs]
+    message: PostDidcommPackPlaintextBodyMessage,
+    did_docs: [PostDidcommPackPlaintextBodyDidDocs]
   }, required: %i[message])
   PostDidcommPackPlaintextResult = Keiyaku.model({ packed_message: String }, required: %i[packed_message])
+  PostDidcommPackPlaintextError = Keiyaku.model({
+    error: String,
+    message: String
+  }, required: %i[error message])
   PostDidcommUnpackBodyOptions = Keiyaku.model({
     expect_decrypt_by_all_keys: :bool,
     unwrap_re_wrapping_forward: :bool
   }, from: { expect_decrypt_by_all_keys: "expect_decrypt_by_all_keys", unwrap_re_wrapping_forward: "unwrap_re_wrapping_forward" })
+  PostDidcommUnpackBodyDidDocsVerificationMethod = Keiyaku.model({
+    id: String,
+    type: String,
+    controller: String,
+    public_key_jwk: { String => :any },
+    public_key_multibase: String,
+    public_key_base58: String
+  }, required: %i[id type controller])
+  PostDidcommUnpackBodyDidDocsService = Keiyaku.model({
+    id: String,
+    type: String,
+    service_endpoint: :any
+  }, required: %i[id type service_endpoint])
+  PostDidcommUnpackBodyDidDocs = Keiyaku.model({
+    id: String,
+    key_agreement: [String],
+    authentication: [String],
+    verification_method: [PostDidcommUnpackBodyDidDocsVerificationMethod],
+    service: [PostDidcommUnpackBodyDidDocsService]
+  }, required: %i[id key_agreement authentication verification_method service])
+  PostDidcommUnpackBodySecrets = Keiyaku.model({
+    id: String,
+    type: String,
+    private_key_jwk: { String => :any },
+    private_key_multibase: String,
+    private_key_base58: String
+  }, required: %i[id type])
   PostDidcommUnpackBody = Keiyaku.model({
     message: String,
     options: PostDidcommUnpackBodyOptions,
-    did_docs: [PostDidcommPackEncryptedBodyDidDocs],
-    secrets: [PostDidcommPackEncryptedBodySecrets]
+    did_docs: [PostDidcommUnpackBodyDidDocs],
+    secrets: [PostDidcommUnpackBodySecrets]
   }, required: %i[message])
+  PostDidcommUnpackResultMessageAttachments = Keiyaku.model({
+    data: :any,
+    id: String,
+    description: String,
+    filename: String,
+    media_type: String,
+    format: String,
+    lastmod_time: Float,
+    byte_count: Float
+  }, required: %i[data], from: { media_type: "media_type", lastmod_time: "lastmod_time", byte_count: "byte_count" })
+  PostDidcommUnpackResultMessage = Keiyaku.model({
+    id: String,
+    typ: String,
+    type: String,
+    body: :any,
+    from: String,
+    to: [String],
+    thid: String,
+    pthid: String,
+    created_time: Float,
+    expires_time: Float,
+    from_prior: String,
+    attachments: [PostDidcommUnpackResultMessageAttachments]
+  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" })
   PostDidcommUnpackResultMetadata = Keiyaku.model({
     encrypted: :bool,
     authenticated: :bool,
@@ -136,13 +287,14 @@ module Sidecar
     from_prior: :any
   }, required: %i[encrypted authenticated non_repudiation anonymous_sender re_wrapped_in_forward], from: { non_repudiation: "non_repudiation", anonymous_sender: "anonymous_sender", re_wrapped_in_forward: "re_wrapped_in_forward", encrypted_from_kid: "encrypted_from_kid", encrypted_to_kids: "encrypted_to_kids", sign_from: "sign_from", from_prior_issuer_kid: "from_prior_issuer_kid", enc_alg_auth: "enc_alg_auth", enc_alg_anon: "enc_alg_anon", sign_alg: "sign_alg", signed_message: "signed_message", from_prior: "from_prior" })
   PostDidcommUnpackResult = Keiyaku.model({
-    message: PostDidcommPackEncryptedBodyMessage,
+    message: PostDidcommUnpackResultMessage,
     from: String,
     verified_from: String,
     sender_verified: :bool,
     encrypted: :bool,
     metadata: PostDidcommUnpackResultMetadata
   }, required: %i[message from verified_from sender_verified encrypted metadata])
+  PostDidcommUnpackError = Keiyaku.model({ error: String, message: String }, required: %i[error message])
   PostDidResolveBody = Keiyaku.model({ did: String }, required: %i[did])
   PostDidResolveResultDidResolutionMetadata = Keiyaku.model({
     content_type: String,
@@ -154,30 +306,129 @@ module Sidecar
     did_document_metadata: { String => :any },
     did_resolution_metadata: PostDidResolveResultDidResolutionMetadata
   }, required: %i[did_document did_document_metadata did_resolution_metadata])
-  PostDidDidcommDocResult = Keiyaku.model({
-    did_doc: PostDidcommPackEncryptedBodyDidDocs
-  }, required: %i[did_doc])
+  PostDidResolveErrorDidResolutionMetadata = Keiyaku.model({
+    content_type: String,
+    error: String,
+    message: String
+  })
+  PostDidResolveError = Keiyaku.model({
+    did_document: :any,
+    did_document_metadata: { String => :any },
+    did_resolution_metadata: PostDidResolveErrorDidResolutionMetadata
+  }, required: %i[did_document did_document_metadata did_resolution_metadata])
+  PostDidDidcommDocBody = Keiyaku.model({ did: String }, required: %i[did])
+  PostDidDidcommDocResultDidDocVerificationMethod = Keiyaku.model({
+    id: String,
+    type: String,
+    controller: String,
+    public_key_jwk: { String => :any },
+    public_key_multibase: String,
+    public_key_base58: String
+  }, required: %i[id type controller])
+  PostDidDidcommDocResultDidDocService = Keiyaku.model({
+    id: String,
+    type: String,
+    service_endpoint: :any
+  }, required: %i[id type service_endpoint])
+  PostDidDidcommDocResultDidDoc = Keiyaku.model({
+    id: String,
+    key_agreement: [String],
+    authentication: [String],
+    verification_method: [PostDidDidcommDocResultDidDocVerificationMethod],
+    service: [PostDidDidcommDocResultDidDocService]
+  }, required: %i[id key_agreement authentication verification_method service])
+  PostDidDidcommDocResult = Keiyaku.model({ did_doc: PostDidDidcommDocResultDidDoc }, required: %i[did_doc])
+  PostDidDidcommDocError = Keiyaku.model({ error: String, message: String }, required: %i[error message])
   PostDidPeer4Body = Keiyaku.model({ document: { String => :any } }, required: %i[document])
+  PostDidPeer4ResultDidcommDidDocVerificationMethod = Keiyaku.model({
+    id: String,
+    type: String,
+    controller: String,
+    public_key_jwk: { String => :any },
+    public_key_multibase: String,
+    public_key_base58: String
+  }, required: %i[id type controller])
+  PostDidPeer4ResultDidcommDidDocService = Keiyaku.model({
+    id: String,
+    type: String,
+    service_endpoint: :any
+  }, required: %i[id type service_endpoint])
+  PostDidPeer4ResultDidcommDidDoc = Keiyaku.model({
+    id: String,
+    key_agreement: [String],
+    authentication: [String],
+    verification_method: [PostDidPeer4ResultDidcommDidDocVerificationMethod],
+    service: [PostDidPeer4ResultDidcommDidDocService]
+  }, required: %i[id key_agreement authentication verification_method service])
   PostDidPeer4Result = Keiyaku.model({
     did: String,
     short_did: String,
     did_document: :any,
     short_did_document: :any,
-    didcomm_did_doc: PostDidcommPackEncryptedBodyDidDocs
+    didcomm_did_doc: PostDidPeer4ResultDidcommDidDoc
   }, required: %i[did short_did did_document short_did_document didcomm_did_doc])
+  PostDidPeer4Error = Keiyaku.model({ error: String, message: String }, required: %i[error message])
   PostDidPeer4CreateBody = Keiyaku.model({ keys: [String], service: String })
+  PostDidPeer4CreateResultDidcommDidDocVerificationMethod = Keiyaku.model({
+    id: String,
+    type: String,
+    controller: String,
+    public_key_jwk: { String => :any },
+    public_key_multibase: String,
+    public_key_base58: String
+  }, required: %i[id type controller])
+  PostDidPeer4CreateResultDidcommDidDocService = Keiyaku.model({
+    id: String,
+    type: String,
+    service_endpoint: :any
+  }, required: %i[id type service_endpoint])
+  PostDidPeer4CreateResultDidcommDidDoc = Keiyaku.model({
+    id: String,
+    key_agreement: [String],
+    authentication: [String],
+    verification_method: [PostDidPeer4CreateResultDidcommDidDocVerificationMethod],
+    service: [PostDidPeer4CreateResultDidcommDidDocService]
+  }, required: %i[id key_agreement authentication verification_method service])
+  PostDidPeer4CreateResultSecrets = Keiyaku.model({
+    id: String,
+    type: String,
+    private_key_jwk: { String => :any },
+    private_key_multibase: String,
+    private_key_base58: String
+  }, required: %i[id type])
   PostDidPeer4CreateResult = Keiyaku.model({
     did: String,
     short_did: String,
     input_document: { String => :any },
     did_document: :any,
     short_did_document: :any,
-    didcomm_did_doc: PostDidcommPackEncryptedBodyDidDocs,
-    secrets: [PostDidcommPackEncryptedBodySecrets]
+    didcomm_did_doc: PostDidPeer4CreateResultDidcommDidDoc,
+    secrets: [PostDidPeer4CreateResultSecrets]
   }, required: %i[did short_did input_document did_document short_did_document didcomm_did_doc secrets])
+  PostDidPeer4CreateError = Keiyaku.model({ error: String, message: String }, required: %i[error message])
   PostDidPeer4ResolveShortBody = Keiyaku.model({
     document: { String => :any },
     did: String
   }, required: %i[document])
+  PostDidPeer4ResolveShortResultDidResolutionMetadata = Keiyaku.model({
+    content_type: String,
+    error: String,
+    message: String
+  })
+  PostDidPeer4ResolveShortResult = Keiyaku.model({
+    did_document: :any,
+    did_document_metadata: { String => :any },
+    did_resolution_metadata: PostDidPeer4ResolveShortResultDidResolutionMetadata
+  }, required: %i[did_document did_document_metadata did_resolution_metadata])
+  PostDidPeer4ResolveShortErrorDidResolutionMetadata = Keiyaku.model({
+    content_type: String,
+    error: String,
+    message: String
+  })
+  PostDidPeer4ResolveShortError = Keiyaku.model({
+    did_document: :any,
+    did_document_metadata: { String => :any },
+    did_resolution_metadata: PostDidPeer4ResolveShortErrorDidResolutionMetadata
+  }, required: %i[did_document did_document_metadata did_resolution_metadata])
   GetHealthResult = Keiyaku.model({ status: String }, required: %i[status])
 end

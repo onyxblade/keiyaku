@@ -388,24 +388,39 @@ module Keiyaku
     end
 
     # An inline object gets its own type rather than degrading to a bare Hash,
-    # named for where it appeared. A document that writes the same schema out
-    # again under every operation — which is what one with no components looks
-    # like — would otherwise get a model per copy, so an identical model that
-    # has already been emitted is used instead of a second one.
+    # named for where it appeared: the body of an operation is that operation's
+    # name, a property is its path down from one. Every such name is a reading
+    # of the document rather than a choice, which is the whole of the rule —
+    # where the document names a type the name is its own, and where it does
+    # not, the position the schema was written in names it.
+    #
+    # Two schemas that are structurally identical are still two types. Matching
+    # them up and keeping the first name would be the generator choosing, and
+    # it chooses badly, because the first name is a record of where it happened
+    # to walk first: it is how a document with 601 inline request bodies got 56
+    # operations sharing a type called after login links, and 25 more sharing
+    # one called after a card mandate.
     def hoist(context, schema, deps, upload: false)
       const = Names.constant(context.split(/[.\[\]{}]/).reject(&:empty?).join("_"))
       own = []
       model = build_model(const, merge_all_of(schema), own, upload:)
 
-      if (existing = @models.key(model))
-        deps << existing
-        return existing
-      end
+      # The same name asked for twice is not two types. One operation's 400 and
+      # its 404 are both `#{name}_error`, and where the document gives them the
+      # same shape they are one model — agreeing on a name they both derived is
+      # not the same as being matched up by structure.
+      #
+      # Where they disagree, typing it :any instead would leave the caller a
+      # Hash where the document describes a shape, and no way to tell which of
+      # the two schemas the name ended up meaning.
+      raise Impossible, @poisoned[const] if @poisoned.key?(const)
 
-      # Typing it :any instead would leave the caller a Hash where the
-      # document describes a shape, and no way to tell which of the two
-      # schemas the name ended up meaning.
-      raise Impossible, "#{const} already names a different schema" if @models.key?(const) || @poisoned.key?(const)
+      if (existing = @models[const])
+        raise Impossible, "#{const} already names a different schema" unless existing == model
+
+        deps << const
+        return const
+      end
 
       @models[const] = model
       @deps[const] = own.uniq - [const]
@@ -564,7 +579,7 @@ module Keiyaku
     # answer, and casting the second into the first's type is what would need
     # excusing.
     def responses(op, name, deps)
-      errors, success = {}, {}
+      errors, success, seen = {}, {}, {}
 
       (op["responses"] || {}).each do |status, response|
         content = resolve(response)["content"] || {}
@@ -574,10 +589,13 @@ module Keiyaku
         if !status.to_i.between?(200, 299)
           errors[status == "default" ? ":default" : status] = type_for(schema, "#{name}_error", deps) if schema
         elsif schema
-          # Later ones are named for their status, so that two which turn out
-          # to be the same shape still dedupe onto the first's name, and two
-          # which do not are told apart by the message that refuses them.
-          success[status] = type_for(schema, "#{name}#{"_#{status}" if success.any?}_result", deps)
+          # Later ones are named for their status, so that two which do not
+          # turn out to be the same shape are told apart. Two which do are the
+          # document repeating itself inside one operation, and the second has
+          # no schema of its own to be named after — which is not the same as
+          # two schemas being matched up by structure and one losing its name.
+          success[status] = seen[schema] ||=
+            type_for(schema, "#{name}#{"_#{status}" if success.any?}_result", deps)
         elsif content.any?
           @notes << "#{name}: #{status} is #{content.keys.join(", ")}, which is returned as the raw body"
         end

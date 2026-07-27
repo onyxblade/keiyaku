@@ -22,14 +22,35 @@ RSpec.describe "a document a server wrote about itself" do
   end
 
   # With no components, the same schema is written out again under every
-  # operation that uses it. Identity rather than name: which of the eight
-  # places an error body appears gets to name the type is exactly what is
-  # unsettled about it, but that they are one type is the point.
-  it "gives one type to a schema its document repeats" do
-    errors = operations.values.flat_map { _1[:errors].values }.uniq
+  # operation that uses it — the error body appears in eight places, and eight
+  # of these routes take a structurally identical request. Each copy is named
+  # after the operation it was written under, so the names are the settled part
+  # rather than the unsettled one: no operation is handed a type called after a
+  # different operation, which is the only name the generator could have picked
+  # and the only one that records where it walked rather than what it read.
+  it "names every type after the operation it was written under" do
+    operations.each do |name, op|
+      expected = "Sidecar::#{name.to_s.split("_").map(&:capitalize).join}"
+      types = { "Body" => op[:body], "Result" => op[:into] }
+        .merge(op[:errors].transform_keys { "Error" })
 
-    expect(errors.size).to be < operations.size
-    expect(operations[:post_did_didcomm_doc][:body]).to equal operations[:post_did_resolve][:body]
+      types.each do |suffix, type|
+        next unless type.is_a?(Class)
+
+        expect(type.name).to eq "#{expected}#{suffix}"
+      end
+    end
+  end
+
+  # The worst of what naming a type by structural match produced: this
+  # operation's 400 body happens to have the same shape as its 200 body, so the
+  # error was typed as the result, and a caller rescuing it got a value whose
+  # class said it had succeeded.
+  it "does not hand an operation its result type as its error type" do
+    op = operations[:post_did_resolve]
+
+    expect(op[:errors].values.uniq).to eq [Sidecar::PostDidResolveError]
+    expect(op[:errors].values).not_to include op[:into]
   end
 
   it "does not merge two schemas that only look alike" do
