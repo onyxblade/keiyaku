@@ -26,6 +26,15 @@ RSpec.describe "failure" do
     end
   end
 
+  # A document with no `servers` — ordinary for a sidecar, or anything behind a
+  # mesh — leaves the client without an address, which then has to come from
+  # the application. Saying so beats an ArgumentError out of URI at the first
+  # call.
+  it "will not build a client that has no address at all" do
+    expect { Class.new(Keiyaku::Client).new }
+      .to raise_error(Keiyaku::Error, /has no server declared; build it with base_url:/)
+  end
+
   # An operation the generator refused to translate is still defined, so the
   # failure is a named one at the call rather than a NoMethodError.
   it "raises Unsupported for an operation it refused to build" do

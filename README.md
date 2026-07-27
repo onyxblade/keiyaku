@@ -10,9 +10,9 @@ operations, 6 schemas):
 
 | | `openapi-generator -g ruby` | this |
 | --- | --- | --- |
-| generated Ruby | 4,316 lines across 25 files | **68 lines across 2 files** |
+| generated Ruby | 4,316 lines across 25 files | **67 lines across 2 files** |
 | RBS | none | 82 lines |
-| shared runtime | — | 545 lines, written once |
+| shared runtime | — | 556 lines, written once |
 
 The whole client:
 
@@ -37,11 +37,16 @@ end
 and its types:
 
 ```ruby
-Pet = Keiyaku.model(
+Pet = Keiyaku.model({
   id: Integer, name: String, category: Category, photo_urls: [String],
-  tags: [Tag], status: String, required: %i[name photo_urls]
-)
+  tags: [Tag], status: String
+}, required: %i[name photo_urls])
 ```
+
+The fields sit in a Hash of their own rather than as keywords beside
+`required:`, because they are the API's names and not ours. A DIDComm message
+has a property called `from`, which as a keyword would quietly have taken the
+place of the option that maps JSON names.
 
 ## Usage
 
@@ -112,6 +117,11 @@ Event = Keiyaku::OneOf[WidgetCreated, WidgetRetired, on: "kind",
 and the RBS gets `type event = WidgetCreated | WidgetRetired`. Without a
 discriminator there is nothing to dispatch on, so it stays `:any` and the run
 says so — casting by trying each variant until one sticks would be a guess.
+
+Some unions are only unions on paper, and those keep their type. `anyOf: [{type:
+string}, {type: null}]` is how OpenAPI 3.1 says a field may be null, and a union
+whose branches all resolve to the same type says nothing that type does not:
+both become `String`. Neither is a guess, so neither is worth a note.
 
 A `multipart/form-data` body is a model like any other, except that a property
 with `format: binary` is typed `:upload`:
@@ -188,9 +198,28 @@ refused to generate 1 operation(s):
 Calling one raises Keiyaku::Unsupported. Write those by hand.
 ```
 
+## Documents nobody wrote by hand
+
+A document a server produced from its own routes tends to be missing the things
+a hand-written one has, and the generator has to cope rather than refuse:
+
+- **No `operationId`.** The verb and the path are then all there is to name a
+  method with, so `POST /didcomm/pack/encrypted` becomes
+  `post_didcomm_pack_encrypted` and a path parameter becomes `by_id`, which
+  keeps `GET /things` and `GET /things/{id}` apart. Two operations that would
+  still land on one name are a note, since the second would silently replace
+  the first.
+- **No `components`.** Every schema is then written out again under each
+  operation. Two that are structurally identical become one model, named for
+  where it first appeared — otherwise a document with nine operations over the
+  same four shapes gets thirty-odd types.
+- **No `servers`.** The address has to come from the application, so that is a
+  note at generation time and a `Keiyaku::Error` naming the client if one is
+  built without `base_url:`.
+
 ## Tests
 
-`rake` regenerates the examples, validates their RBS, and runs the specs — 73
+`rake` regenerates the examples, validates their RBS, and runs the specs — 95
 RSpec examples covering name mapping in both directions, nested and array
 models, pattern matching, query array explosion, header parameters overriding
 credentials, typed error bodies, binary and multipart request bodies,

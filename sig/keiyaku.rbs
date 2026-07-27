@@ -44,8 +44,9 @@ module Keiyaku
   def self.dump: (untyped) -> untyped
 
   # Returns a Data subclass built at runtime; the generator emits a proper
-  # class declaration for each one alongside the code.
-  def self.model: (?required: Array[Symbol], ?from: Hash[Symbol, String], **untyped) -> untyped
+  # class declaration for each one alongside the code. The fields are a
+  # positional Hash so that a property named `from` cannot displace the option.
+  def self.model: (Hash[Symbol, untyped] fields, ?required: Array[Symbol], ?from: Hash[Symbol, String]) -> untyped
 
   class OneOf
     def self.[]: (*untyped variants, on: String, ?map: Hash[untyped, untyped]) -> OneOf

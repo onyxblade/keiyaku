@@ -4,28 +4,23 @@
 require "keiyaku/runtime"
 
 module Widgets
-  Widget = Keiyaku.model(
+  Widget = Keiyaku.model({
     id: Integer,
     created_at: Time,
     labels: { String => String },
-    retired: :bool,
-    required: %i[id created_at],
-    from: { created_at: "created_at" }
-  )
-  Problem = Keiyaku.model(
+    retired: :bool
+  }, required: %i[id created_at], from: { created_at: "created_at" })
+  Problem = Keiyaku.model({
     detail: String,
     trace_id: String,
-    source: :any,
-    required: %i[detail],
-    from: { trace_id: "trace_id" }
-  )
-  WidgetCreated = Keiyaku.model(kind: String, widget: Widget, required: %i[kind widget])
-  WidgetRetired = Keiyaku.model(kind: String, id: Integer, reason: String, required: %i[kind id])
+    source: :any
+  }, required: %i[detail], from: { trace_id: "trace_id" })
+  WidgetCreated = Keiyaku.model({ kind: String, widget: Widget }, required: %i[kind widget])
+  WidgetRetired = Keiyaku.model({ kind: String, id: Integer, reason: String }, required: %i[kind id])
   Event = Keiyaku::OneOf[WidgetCreated, WidgetRetired, on: "kind", map: { "created" => WidgetCreated, "retired" => WidgetRetired }]
-  UploadPhotoBody = Keiyaku.model(file: :upload, caption: String, tags: [String], required: %i[file])
-  SearchWidgetsResult = Keiyaku.model(
+  UploadPhotoBody = Keiyaku.model({ file: :upload, caption: String, tags: [String] }, required: %i[file])
+  SearchWidgetsResult = Keiyaku.model({
     items: [Widget],
-    next_cursor: String,
-    from: { next_cursor: "next_cursor" }
-  )
+    next_cursor: String
+  }, from: { next_cursor: "next_cursor" })
 end

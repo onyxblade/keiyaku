@@ -97,13 +97,17 @@ module Keiyaku
 
   # Build a value type for one schema.
   #
-  #   Pet = Keiyaku.model(id: Integer, name: String, required: %i[name])
+  #   Pet = Keiyaku.model({ id: Integer, name: String }, required: %i[name])
   #
   # Returns a Data subclass, so callers get immutability, #with and pattern
   # matching for free. Missing optional fields arrive as nil rather than
   # raising, and unknown fields in a response are ignored so that a server
   # adding a field does not break an old client.
-  def model(required: [], from: {}, **fields)
+  #
+  # The fields are a positional Hash rather than keywords because they are the
+  # API's names, not ours: a DIDComm message has a property called `from`, and
+  # as keywords it would have quietly taken the place of the option below it.
+  def model(fields, required: [], from: {})
     names = fields.keys
     json_names = names.to_h { |n| [n, (from[n] || camelize(n)).to_s] }
 
@@ -368,7 +372,14 @@ module Keiyaku
     attr_reader :base_url
 
     def initialize(base_url: nil, auth: nil, adapter: nil, timeout: 15, retries: 0, logger: nil)
-      @base_url = (base_url || self.class.server or raise ArgumentError, "no base_url and no server in the spec").chomp("/")
+      # A document with no `servers` is ordinary for anything not published on
+      # the open internet — a sidecar, something behind a mesh — so the address
+      # has to come from the application. Saying so here beats an ArgumentError
+      # out of URI at the first call.
+      url = base_url || self.class.server
+      raise Error, "#{self.class} has no server declared; build it with base_url:" if url.to_s.empty?
+
+      @base_url = url.chomp("/")
       @auth = auth
       @adapter = adapter || NetHTTPAdapter.new(timeout:)
       @retries = retries

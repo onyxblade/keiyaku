@@ -22,3 +22,13 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
 - response header names are lower-cased before use, so an adapter that returns
   them any other way still decodes
 - retry backoff has jitter
+- `Keiyaku.model` takes its fields as a positional Hash, so a property named
+  `from` or `required` cannot displace the option of the same name
+- `anyOf` of a type and `null`, or of branches that all agree, keeps the type
+  instead of degrading to `:any`
+- structurally identical inline schemas are emitted as one model
+- operations with no `operationId` are named for their verb and path; two that
+  would land on one name are a note
+- a document with no `servers` is a note, and building such a client without
+  `base_url:` raises rather than failing later inside `URI`
+- a tuple (`items` as a list, or `prefixItems`) no longer crashes the generator
