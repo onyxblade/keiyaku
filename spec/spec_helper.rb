@@ -11,6 +11,7 @@ require "tmpdir"
 # `rake` regenerates them first, so the specs run against current output.
 require_relative "../examples/petstore/client"
 require_relative "../examples/widgets/client"
+require_relative "../examples/sidecar/client"
 
 require_relative "support/test_server"
 require_relative "support/clients"

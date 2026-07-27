@@ -203,7 +203,9 @@ Calling one raises Keiyaku::Unsupported. Write those by hand.
 ## Documents nobody wrote by hand
 
 A document a server produced from its own routes tends to be missing the things
-a hand-written one has, and the generator has to cope rather than refuse:
+a hand-written one has, and the generator has to cope rather than refuse.
+[`examples/sidecar.json`](examples/sidecar.json) is one, checked in exactly as
+the service prints it — ten routes, and every one of these true at once:
 
 - **No `operationId`.** The verb and the path are then all there is to name a
   method with, so `POST /didcomm/pack/encrypted` becomes
@@ -214,14 +216,20 @@ a hand-written one has, and the generator has to cope rather than refuse:
 - **No `components`.** Every schema is then written out again under each
   operation. Two that are structurally identical become one model, named for
   where it first appeared — otherwise a document with nine operations over the
-  same four shapes gets thirty-odd types.
+  same four shapes gets thirty-odd types. The name is the weak part: it records
+  where the generator first walked rather than what the type is, so the error
+  body shared by eight routes is called after whichever one came first.
 - **No `servers`.** The address has to come from the application, so that is a
   note at generation time and a `Keiyaku::Error` naming the client if one is
   built without `base_url:`.
 
+A document like this is worth more as a test than one written for the purpose,
+because it was not written for the purpose. Every defect found in the generator
+so far came from pointing it at that file rather than at the two below.
+
 ## Tests
 
-`rake` regenerates the examples, validates their RBS, and runs the specs — 95
+`rake` regenerates the examples, validates their RBS, and runs the specs — 102
 RSpec examples covering name mapping in both directions, nested and array
 models, pattern matching, query array explosion, header parameters overriding
 credentials, typed error bodies, binary and multipart request bodies,
@@ -239,6 +247,12 @@ A second document, [`examples/widgets.yaml`](examples/widgets.yaml), exists to
 keep the generator honest about not being fitted to the Petstore: OAS 3.1,
 bearer auth, a `default` error response, and JSON fields that are already
 snake_case (which the camelCase convention would otherwise guess wrong).
+
+A third, [`examples/sidecar.json`](examples/sidecar.json), was not written for
+this at all — see above. Its client is generated and its RBS validated on every
+run like the others, and [`spec/sidecar_spec.rb`](spec/sidecar_spec.rb) asserts
+on the result through `Client.operations` rather than through type names, since
+the names of deduplicated models are the part still unsettled.
 
 The optional adapters are covered by the same suite, over the same socket, when
 faraday and http.rb happen to be installed. They are marked pending otherwise,

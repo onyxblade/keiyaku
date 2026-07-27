@@ -1,0 +1,2823 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "DIDComm HTTP API",
+    "description": "HTTP wrapper for DIDComm WASM (didcomm-rust) and DID resolution (did:web + did:webvh)",
+    "version": "0.1.0"
+  },
+  "components": {
+    "schemas": {}
+  },
+  "paths": {
+    "/didcomm/pack/encrypted": {
+      "post": {
+        "summary": "Pack an encrypted DIDComm message",
+        "tags": [
+          "DIDComm"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Pack encrypted request",
+                "type": "object",
+                "required": [
+                  "message",
+                  "to"
+                ],
+                "properties": {
+                  "message": {
+                    "description": "DIDComm plaintext message",
+                    "additionalProperties": true,
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "typ",
+                      "type",
+                      "body"
+                    ],
+                    "properties": {
+                      "id": {
+                        "description": "Unique message ID",
+                        "type": "string"
+                      },
+                      "typ": {
+                        "description": "Message type header",
+                        "default": "application/didcomm-plain+json",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "Message Type URI",
+                        "type": "string"
+                      },
+                      "body": {
+                        "description": "Message body"
+                      },
+                      "from": {
+                        "description": "Sender DID",
+                        "type": "string"
+                      },
+                      "to": {
+                        "description": "Recipient DIDs",
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "thid": {
+                        "description": "Thread ID",
+                        "type": "string"
+                      },
+                      "pthid": {
+                        "description": "Parent thread ID",
+                        "type": "string"
+                      },
+                      "created_time": {
+                        "description": "Created time (UTC epoch seconds)",
+                        "type": "number"
+                      },
+                      "expires_time": {
+                        "description": "Expiry time (UTC epoch seconds)",
+                        "type": "number"
+                      },
+                      "from_prior": {
+                        "description": "Compact serialized signed JWT",
+                        "type": "string"
+                      },
+                      "attachments": {
+                        "type": "array",
+                        "items": {
+                          "description": "Message attachment",
+                          "type": "object",
+                          "required": [
+                            "data"
+                          ],
+                          "properties": {
+                            "data": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "base64"
+                                  ],
+                                  "properties": {
+                                    "base64": {
+                                      "type": "string"
+                                    },
+                                    "jws": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "json"
+                                  ],
+                                  "properties": {
+                                    "json": {},
+                                    "jws": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "links",
+                                    "hash"
+                                  ],
+                                  "properties": {
+                                    "links": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "hash": {
+                                      "type": "string"
+                                    },
+                                    "jws": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "filename": {
+                              "type": "string"
+                            },
+                            "media_type": {
+                              "type": "string"
+                            },
+                            "format": {
+                              "type": "string"
+                            },
+                            "lastmod_time": {
+                              "type": "number"
+                            },
+                            "byte_count": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "to": {
+                    "description": "Recipient DID or key ID",
+                    "type": "string"
+                  },
+                  "from": {
+                    "description": "Sender DID or key ID (null for anonymous)",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "sign_by": {
+                    "description": "Signer DID or key ID for non-repudiation",
+                    "anyOf": [
+                      {
+                        "type": "string"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "options": {
+                    "type": "object",
+                    "properties": {
+                      "protect_sender": {
+                        "description": "Hide sender from mediators",
+                        "type": "boolean"
+                      },
+                      "forward": {
+                        "description": "Wrap in Forward messages for whatever mediators stand in front of the recipient (default: true)",
+                        "type": "boolean"
+                      },
+                      "forward_headers": {
+                        "type": "array",
+                        "items": {
+                          "type": "array",
+                          "items": [
+                            {
+                              "type": "string"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ],
+                          "additionalItems": false,
+                          "minItems": 2,
+                          "maxItems": 2
+                        }
+                      },
+                      "messaging_service": {
+                        "description": "DID URL of messaging service",
+                        "type": "string"
+                      },
+                      "enc_alg_auth": {
+                        "description": "Authenticated encryption algorithm",
+                        "type": "string",
+                        "enum": [
+                          "A256cbcHs512Ecdh1puA256kw"
+                        ]
+                      },
+                      "enc_alg_anon": {
+                        "description": "Anonymous encryption algorithm",
+                        "anyOf": [
+                          {
+                            "type": "string",
+                            "enum": [
+                              "A256cbcHs512EcdhEsA256kw"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "Xc20pEcdhEsA256kw"
+                            ]
+                          },
+                          {
+                            "type": "string",
+                            "enum": [
+                              "A256gcmEcdhEsA256kw"
+                            ]
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "didDocs": {
+                    "description": "DID Documents to use instead of resolving them",
+                    "type": "array",
+                    "items": {
+                      "description": "DID Document in DIDComm WASM format",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "keyAgreement",
+                        "authentication",
+                        "verificationMethod",
+                        "service"
+                      ],
+                      "properties": {
+                        "id": {
+                          "description": "DID for the document",
+                          "type": "string"
+                        },
+                        "keyAgreement": {
+                          "description": "DID URLs for key agreement verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "authentication": {
+                          "description": "DID URLs for authentication verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "verificationMethod": {
+                          "description": "Verification methods",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Verification Method",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "controller"
+                            ],
+                            "properties": {
+                              "id": {
+                                "description": "Verification method ID (DID URL)",
+                                "type": "string"
+                              },
+                              "type": {
+                                "description": "Verification method type, e.g. \"JsonWebKey2020\", \"X25519KeyAgreementKey2019\"",
+                                "type": "string",
+                                "example": "JsonWebKey2020"
+                              },
+                              "controller": {
+                                "description": "Controller DID",
+                                "type": "string"
+                              },
+                              "publicKeyJwk": {
+                                "description": "Public key in JWK format",
+                                "type": "object",
+                                "additionalProperties": {}
+                              },
+                              "publicKeyMultibase": {
+                                "description": "Public key in multibase format",
+                                "type": "string"
+                              },
+                              "publicKeyBase58": {
+                                "description": "Public key in base58 format",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "service": {
+                          "description": "Services",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Service",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "serviceEndpoint"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "serviceEndpoint": {
+                                "anyOf": [
+                                  {
+                                    "description": "Service endpoint",
+                                    "type": "object",
+                                    "required": [
+                                      "uri"
+                                    ],
+                                    "properties": {
+                                      "uri": {
+                                        "type": "string"
+                                      },
+                                      "accept": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "routingKeys": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "secrets": {
+                    "description": "Sender secrets (private keys)",
+                    "type": "array",
+                    "items": {
+                      "description": "Secret (private key)",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "type"
+                      ],
+                      "properties": {
+                        "id": {
+                          "description": "Key ID (DID URL)",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Secret type, must match verification method type",
+                          "type": "string",
+                          "example": "JsonWebKey2020"
+                        },
+                        "privateKeyJwk": {
+                          "description": "Private key in JWK format",
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "privateKeyMultibase": {
+                          "description": "Private key in multibase format",
+                          "type": "string"
+                        },
+                        "privateKeyBase58": {
+                          "description": "Private key in base58 format",
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "description": "Pack encrypted request"
+        },
+        "responses": {
+          "200": {
+            "description": "Pack encrypted response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Pack encrypted response",
+                  "type": "object",
+                  "required": [
+                    "packedMessage",
+                    "deliveryEndpoint",
+                    "metadata"
+                  ],
+                  "properties": {
+                    "packedMessage": {
+                      "description": "Packed JWE message",
+                      "type": "string"
+                    },
+                    "deliveryEndpoint": {
+                      "description": "Where to POST the packed message: a mediator's address when the message was wrapped in a Forward, the recipient's own otherwise, and null when the recipient publishes no DIDComm endpoint at all — which means they can only be answered on a connection they opened",
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "metadata": {
+                      "type": "object",
+                      "required": [
+                        "to_kids"
+                      ],
+                      "properties": {
+                        "messaging_service": {
+                          "type": "object",
+                          "required": [
+                            "id",
+                            "service_endpoint"
+                          ],
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "service_endpoint": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "from_kid": {
+                          "type": "string"
+                        },
+                        "sign_by_kid": {
+                          "type": "string"
+                        },
+                        "to_kids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Error response",
+                  "type": "object",
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "properties": {
+                    "error": {
+                      "description": "Error type",
+                      "type": "string"
+                    },
+                    "message": {
+                      "description": "Error message",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/didcomm/pack/signed": {
+      "post": {
+        "summary": "Pack a signed DIDComm message",
+        "tags": [
+          "DIDComm"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Pack signed request",
+                "type": "object",
+                "required": [
+                  "message",
+                  "sign_by"
+                ],
+                "properties": {
+                  "message": {
+                    "description": "DIDComm plaintext message",
+                    "additionalProperties": true,
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "typ",
+                      "type",
+                      "body"
+                    ],
+                    "properties": {
+                      "id": {
+                        "description": "Unique message ID",
+                        "type": "string"
+                      },
+                      "typ": {
+                        "description": "Message type header",
+                        "default": "application/didcomm-plain+json",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "Message Type URI",
+                        "type": "string"
+                      },
+                      "body": {
+                        "description": "Message body"
+                      },
+                      "from": {
+                        "description": "Sender DID",
+                        "type": "string"
+                      },
+                      "to": {
+                        "description": "Recipient DIDs",
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "thid": {
+                        "description": "Thread ID",
+                        "type": "string"
+                      },
+                      "pthid": {
+                        "description": "Parent thread ID",
+                        "type": "string"
+                      },
+                      "created_time": {
+                        "description": "Created time (UTC epoch seconds)",
+                        "type": "number"
+                      },
+                      "expires_time": {
+                        "description": "Expiry time (UTC epoch seconds)",
+                        "type": "number"
+                      },
+                      "from_prior": {
+                        "description": "Compact serialized signed JWT",
+                        "type": "string"
+                      },
+                      "attachments": {
+                        "type": "array",
+                        "items": {
+                          "description": "Message attachment",
+                          "type": "object",
+                          "required": [
+                            "data"
+                          ],
+                          "properties": {
+                            "data": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "base64"
+                                  ],
+                                  "properties": {
+                                    "base64": {
+                                      "type": "string"
+                                    },
+                                    "jws": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "json"
+                                  ],
+                                  "properties": {
+                                    "json": {},
+                                    "jws": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "links",
+                                    "hash"
+                                  ],
+                                  "properties": {
+                                    "links": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "hash": {
+                                      "type": "string"
+                                    },
+                                    "jws": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "filename": {
+                              "type": "string"
+                            },
+                            "media_type": {
+                              "type": "string"
+                            },
+                            "format": {
+                              "type": "string"
+                            },
+                            "lastmod_time": {
+                              "type": "number"
+                            },
+                            "byte_count": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "sign_by": {
+                    "description": "Signer DID or key ID",
+                    "type": "string"
+                  },
+                  "didDocs": {
+                    "description": "DID Documents to use instead of resolving them",
+                    "type": "array",
+                    "items": {
+                      "description": "DID Document in DIDComm WASM format",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "keyAgreement",
+                        "authentication",
+                        "verificationMethod",
+                        "service"
+                      ],
+                      "properties": {
+                        "id": {
+                          "description": "DID for the document",
+                          "type": "string"
+                        },
+                        "keyAgreement": {
+                          "description": "DID URLs for key agreement verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "authentication": {
+                          "description": "DID URLs for authentication verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "verificationMethod": {
+                          "description": "Verification methods",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Verification Method",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "controller"
+                            ],
+                            "properties": {
+                              "id": {
+                                "description": "Verification method ID (DID URL)",
+                                "type": "string"
+                              },
+                              "type": {
+                                "description": "Verification method type, e.g. \"JsonWebKey2020\", \"X25519KeyAgreementKey2019\"",
+                                "type": "string",
+                                "example": "JsonWebKey2020"
+                              },
+                              "controller": {
+                                "description": "Controller DID",
+                                "type": "string"
+                              },
+                              "publicKeyJwk": {
+                                "description": "Public key in JWK format",
+                                "type": "object",
+                                "additionalProperties": {}
+                              },
+                              "publicKeyMultibase": {
+                                "description": "Public key in multibase format",
+                                "type": "string"
+                              },
+                              "publicKeyBase58": {
+                                "description": "Public key in base58 format",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "service": {
+                          "description": "Services",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Service",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "serviceEndpoint"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "serviceEndpoint": {
+                                "anyOf": [
+                                  {
+                                    "description": "Service endpoint",
+                                    "type": "object",
+                                    "required": [
+                                      "uri"
+                                    ],
+                                    "properties": {
+                                      "uri": {
+                                        "type": "string"
+                                      },
+                                      "accept": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "routingKeys": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "secrets": {
+                    "description": "Signer secrets (private keys)",
+                    "type": "array",
+                    "items": {
+                      "description": "Secret (private key)",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "type"
+                      ],
+                      "properties": {
+                        "id": {
+                          "description": "Key ID (DID URL)",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Secret type, must match verification method type",
+                          "type": "string",
+                          "example": "JsonWebKey2020"
+                        },
+                        "privateKeyJwk": {
+                          "description": "Private key in JWK format",
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "privateKeyMultibase": {
+                          "description": "Private key in multibase format",
+                          "type": "string"
+                        },
+                        "privateKeyBase58": {
+                          "description": "Private key in base58 format",
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "description": "Pack signed request"
+        },
+        "responses": {
+          "200": {
+            "description": "Pack signed response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Pack signed response",
+                  "type": "object",
+                  "required": [
+                    "packedMessage",
+                    "metadata"
+                  ],
+                  "properties": {
+                    "packedMessage": {
+                      "description": "Packed JWS message",
+                      "type": "string"
+                    },
+                    "metadata": {
+                      "type": "object",
+                      "required": [
+                        "sign_by_kid"
+                      ],
+                      "properties": {
+                        "sign_by_kid": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Error response",
+                  "type": "object",
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "properties": {
+                    "error": {
+                      "description": "Error type",
+                      "type": "string"
+                    },
+                    "message": {
+                      "description": "Error message",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/didcomm/pack/plaintext": {
+      "post": {
+        "summary": "Pack a plaintext DIDComm message",
+        "tags": [
+          "DIDComm"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Pack plaintext request",
+                "type": "object",
+                "required": [
+                  "message"
+                ],
+                "properties": {
+                  "message": {
+                    "description": "DIDComm plaintext message",
+                    "additionalProperties": true,
+                    "type": "object",
+                    "required": [
+                      "id",
+                      "typ",
+                      "type",
+                      "body"
+                    ],
+                    "properties": {
+                      "id": {
+                        "description": "Unique message ID",
+                        "type": "string"
+                      },
+                      "typ": {
+                        "description": "Message type header",
+                        "default": "application/didcomm-plain+json",
+                        "type": "string"
+                      },
+                      "type": {
+                        "description": "Message Type URI",
+                        "type": "string"
+                      },
+                      "body": {
+                        "description": "Message body"
+                      },
+                      "from": {
+                        "description": "Sender DID",
+                        "type": "string"
+                      },
+                      "to": {
+                        "description": "Recipient DIDs",
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "thid": {
+                        "description": "Thread ID",
+                        "type": "string"
+                      },
+                      "pthid": {
+                        "description": "Parent thread ID",
+                        "type": "string"
+                      },
+                      "created_time": {
+                        "description": "Created time (UTC epoch seconds)",
+                        "type": "number"
+                      },
+                      "expires_time": {
+                        "description": "Expiry time (UTC epoch seconds)",
+                        "type": "number"
+                      },
+                      "from_prior": {
+                        "description": "Compact serialized signed JWT",
+                        "type": "string"
+                      },
+                      "attachments": {
+                        "type": "array",
+                        "items": {
+                          "description": "Message attachment",
+                          "type": "object",
+                          "required": [
+                            "data"
+                          ],
+                          "properties": {
+                            "data": {
+                              "anyOf": [
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "base64"
+                                  ],
+                                  "properties": {
+                                    "base64": {
+                                      "type": "string"
+                                    },
+                                    "jws": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "json"
+                                  ],
+                                  "properties": {
+                                    "json": {},
+                                    "jws": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                {
+                                  "type": "object",
+                                  "required": [
+                                    "links",
+                                    "hash"
+                                  ],
+                                  "properties": {
+                                    "links": {
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "hash": {
+                                      "type": "string"
+                                    },
+                                    "jws": {
+                                      "type": "string"
+                                    }
+                                  }
+                                }
+                              ]
+                            },
+                            "id": {
+                              "type": "string"
+                            },
+                            "description": {
+                              "type": "string"
+                            },
+                            "filename": {
+                              "type": "string"
+                            },
+                            "media_type": {
+                              "type": "string"
+                            },
+                            "format": {
+                              "type": "string"
+                            },
+                            "lastmod_time": {
+                              "type": "number"
+                            },
+                            "byte_count": {
+                              "type": "number"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "didDocs": {
+                    "description": "DID Documents to use instead of resolving them",
+                    "type": "array",
+                    "items": {
+                      "description": "DID Document in DIDComm WASM format",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "keyAgreement",
+                        "authentication",
+                        "verificationMethod",
+                        "service"
+                      ],
+                      "properties": {
+                        "id": {
+                          "description": "DID for the document",
+                          "type": "string"
+                        },
+                        "keyAgreement": {
+                          "description": "DID URLs for key agreement verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "authentication": {
+                          "description": "DID URLs for authentication verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "verificationMethod": {
+                          "description": "Verification methods",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Verification Method",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "controller"
+                            ],
+                            "properties": {
+                              "id": {
+                                "description": "Verification method ID (DID URL)",
+                                "type": "string"
+                              },
+                              "type": {
+                                "description": "Verification method type, e.g. \"JsonWebKey2020\", \"X25519KeyAgreementKey2019\"",
+                                "type": "string",
+                                "example": "JsonWebKey2020"
+                              },
+                              "controller": {
+                                "description": "Controller DID",
+                                "type": "string"
+                              },
+                              "publicKeyJwk": {
+                                "description": "Public key in JWK format",
+                                "type": "object",
+                                "additionalProperties": {}
+                              },
+                              "publicKeyMultibase": {
+                                "description": "Public key in multibase format",
+                                "type": "string"
+                              },
+                              "publicKeyBase58": {
+                                "description": "Public key in base58 format",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "service": {
+                          "description": "Services",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Service",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "serviceEndpoint"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "serviceEndpoint": {
+                                "anyOf": [
+                                  {
+                                    "description": "Service endpoint",
+                                    "type": "object",
+                                    "required": [
+                                      "uri"
+                                    ],
+                                    "properties": {
+                                      "uri": {
+                                        "type": "string"
+                                      },
+                                      "accept": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "routingKeys": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "description": "Pack plaintext request"
+        },
+        "responses": {
+          "200": {
+            "description": "Pack plaintext response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Pack plaintext response",
+                  "type": "object",
+                  "required": [
+                    "packedMessage"
+                  ],
+                  "properties": {
+                    "packedMessage": {
+                      "description": "Packed plaintext JSON message",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Error response",
+                  "type": "object",
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "properties": {
+                    "error": {
+                      "description": "Error type",
+                      "type": "string"
+                    },
+                    "message": {
+                      "description": "Error message",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/didcomm/unpack": {
+      "post": {
+        "summary": "Unpack a DIDComm message",
+        "tags": [
+          "DIDComm"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Unpack request",
+                "type": "object",
+                "required": [
+                  "message"
+                ],
+                "properties": {
+                  "message": {
+                    "description": "Packed message (JWE/JWS/JSON)",
+                    "type": "string"
+                  },
+                  "options": {
+                    "type": "object",
+                    "properties": {
+                      "expect_decrypt_by_all_keys": {
+                        "type": "boolean"
+                      },
+                      "unwrap_re_wrapping_forward": {
+                        "type": "boolean"
+                      }
+                    }
+                  },
+                  "didDocs": {
+                    "description": "DID Documents to use instead of resolving them",
+                    "type": "array",
+                    "items": {
+                      "description": "DID Document in DIDComm WASM format",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "keyAgreement",
+                        "authentication",
+                        "verificationMethod",
+                        "service"
+                      ],
+                      "properties": {
+                        "id": {
+                          "description": "DID for the document",
+                          "type": "string"
+                        },
+                        "keyAgreement": {
+                          "description": "DID URLs for key agreement verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "authentication": {
+                          "description": "DID URLs for authentication verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "verificationMethod": {
+                          "description": "Verification methods",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Verification Method",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "controller"
+                            ],
+                            "properties": {
+                              "id": {
+                                "description": "Verification method ID (DID URL)",
+                                "type": "string"
+                              },
+                              "type": {
+                                "description": "Verification method type, e.g. \"JsonWebKey2020\", \"X25519KeyAgreementKey2019\"",
+                                "type": "string",
+                                "example": "JsonWebKey2020"
+                              },
+                              "controller": {
+                                "description": "Controller DID",
+                                "type": "string"
+                              },
+                              "publicKeyJwk": {
+                                "description": "Public key in JWK format",
+                                "type": "object",
+                                "additionalProperties": {}
+                              },
+                              "publicKeyMultibase": {
+                                "description": "Public key in multibase format",
+                                "type": "string"
+                              },
+                              "publicKeyBase58": {
+                                "description": "Public key in base58 format",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "service": {
+                          "description": "Services",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Service",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "serviceEndpoint"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "serviceEndpoint": {
+                                "anyOf": [
+                                  {
+                                    "description": "Service endpoint",
+                                    "type": "object",
+                                    "required": [
+                                      "uri"
+                                    ],
+                                    "properties": {
+                                      "uri": {
+                                        "type": "string"
+                                      },
+                                      "accept": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "routingKeys": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "secrets": {
+                    "description": "Recipient secrets (private keys)",
+                    "type": "array",
+                    "items": {
+                      "description": "Secret (private key)",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "type"
+                      ],
+                      "properties": {
+                        "id": {
+                          "description": "Key ID (DID URL)",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Secret type, must match verification method type",
+                          "type": "string",
+                          "example": "JsonWebKey2020"
+                        },
+                        "privateKeyJwk": {
+                          "description": "Private key in JWK format",
+                          "type": "object",
+                          "additionalProperties": {}
+                        },
+                        "privateKeyMultibase": {
+                          "description": "Private key in multibase format",
+                          "type": "string"
+                        },
+                        "privateKeyBase58": {
+                          "description": "Private key in base58 format",
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "description": "Unpack request"
+        },
+        "responses": {
+          "200": {
+            "description": "Unpack response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Unpack response",
+                  "type": "object",
+                  "required": [
+                    "message",
+                    "from",
+                    "verifiedFrom",
+                    "senderVerified",
+                    "encrypted",
+                    "metadata"
+                  ],
+                  "properties": {
+                    "message": {
+                      "description": "DIDComm plaintext message",
+                      "additionalProperties": true,
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "typ",
+                        "type",
+                        "body"
+                      ],
+                      "properties": {
+                        "id": {
+                          "description": "Unique message ID",
+                          "type": "string"
+                        },
+                        "typ": {
+                          "description": "Message type header",
+                          "default": "application/didcomm-plain+json",
+                          "type": "string"
+                        },
+                        "type": {
+                          "description": "Message Type URI",
+                          "type": "string"
+                        },
+                        "body": {
+                          "description": "Message body"
+                        },
+                        "from": {
+                          "description": "Sender DID",
+                          "type": "string"
+                        },
+                        "to": {
+                          "description": "Recipient DIDs",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "thid": {
+                          "description": "Thread ID",
+                          "type": "string"
+                        },
+                        "pthid": {
+                          "description": "Parent thread ID",
+                          "type": "string"
+                        },
+                        "created_time": {
+                          "description": "Created time (UTC epoch seconds)",
+                          "type": "number"
+                        },
+                        "expires_time": {
+                          "description": "Expiry time (UTC epoch seconds)",
+                          "type": "number"
+                        },
+                        "from_prior": {
+                          "description": "Compact serialized signed JWT",
+                          "type": "string"
+                        },
+                        "attachments": {
+                          "type": "array",
+                          "items": {
+                            "description": "Message attachment",
+                            "type": "object",
+                            "required": [
+                              "data"
+                            ],
+                            "properties": {
+                              "data": {
+                                "anyOf": [
+                                  {
+                                    "type": "object",
+                                    "required": [
+                                      "base64"
+                                    ],
+                                    "properties": {
+                                      "base64": {
+                                        "type": "string"
+                                      },
+                                      "jws": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "object",
+                                    "required": [
+                                      "json"
+                                    ],
+                                    "properties": {
+                                      "json": {},
+                                      "jws": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "object",
+                                    "required": [
+                                      "links",
+                                      "hash"
+                                    ],
+                                    "properties": {
+                                      "links": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "hash": {
+                                        "type": "string"
+                                      },
+                                      "jws": {
+                                        "type": "string"
+                                      }
+                                    }
+                                  }
+                                ]
+                              },
+                              "id": {
+                                "type": "string"
+                              },
+                              "description": {
+                                "type": "string"
+                              },
+                              "filename": {
+                                "type": "string"
+                              },
+                              "media_type": {
+                                "type": "string"
+                              },
+                              "format": {
+                                "type": "string"
+                              },
+                              "lastmod_time": {
+                                "type": "number"
+                              },
+                              "byte_count": {
+                                "type": "number"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "from": {
+                      "description": "The sender the plaintext claims, which is only a claim: nothing about an envelope binds it to the key that closed it",
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "verifiedFrom": {
+                      "description": "The DID whose key actually closed the envelope, or signed it; null when the message proves nobody, as anonymous encryption does",
+                      "anyOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "senderVerified": {
+                      "description": "Whether the claimed sender is the proven one",
+                      "type": "boolean"
+                    },
+                    "encrypted": {
+                      "type": "boolean"
+                    },
+                    "metadata": {
+                      "type": "object",
+                      "required": [
+                        "encrypted",
+                        "authenticated",
+                        "non_repudiation",
+                        "anonymous_sender",
+                        "re_wrapped_in_forward"
+                      ],
+                      "properties": {
+                        "encrypted": {
+                          "type": "boolean"
+                        },
+                        "authenticated": {
+                          "type": "boolean"
+                        },
+                        "non_repudiation": {
+                          "type": "boolean"
+                        },
+                        "anonymous_sender": {
+                          "type": "boolean"
+                        },
+                        "re_wrapped_in_forward": {
+                          "type": "boolean"
+                        },
+                        "encrypted_from_kid": {
+                          "type": "string"
+                        },
+                        "encrypted_to_kids": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "sign_from": {
+                          "type": "string"
+                        },
+                        "from_prior_issuer_kid": {
+                          "type": "string"
+                        },
+                        "enc_alg_auth": {
+                          "type": "string"
+                        },
+                        "enc_alg_anon": {
+                          "type": "string"
+                        },
+                        "sign_alg": {
+                          "type": "string"
+                        },
+                        "signed_message": {
+                          "type": "string"
+                        },
+                        "from_prior": {}
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Error response",
+                  "type": "object",
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "properties": {
+                    "error": {
+                      "description": "Error type",
+                      "type": "string"
+                    },
+                    "message": {
+                      "description": "Error message",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/did/resolve": {
+      "post": {
+        "summary": "Resolve a DID (did:web + did:webvh + did:peer:2 + did:peer:4)",
+        "tags": [
+          "DID"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "did"
+                ],
+                "properties": {
+                  "did": {
+                    "description": "DID to resolve, e.g. did:web:example.com",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "DID Resolution Result (W3C format)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "DID Resolution Result (W3C format)",
+                  "type": "object",
+                  "required": [
+                    "didDocument",
+                    "didDocumentMetadata",
+                    "didResolutionMetadata"
+                  ],
+                  "properties": {
+                    "didDocument": {
+                      "description": "Resolved DID Document"
+                    },
+                    "didDocumentMetadata": {
+                      "description": "DID Document metadata",
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "didResolutionMetadata": {
+                      "type": "object",
+                      "properties": {
+                        "contentType": {
+                          "type": "string"
+                        },
+                        "error": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "DID Resolution Result (W3C format)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "DID Resolution Result (W3C format)",
+                  "type": "object",
+                  "required": [
+                    "didDocument",
+                    "didDocumentMetadata",
+                    "didResolutionMetadata"
+                  ],
+                  "properties": {
+                    "didDocument": {
+                      "description": "Resolved DID Document"
+                    },
+                    "didDocumentMetadata": {
+                      "description": "DID Document metadata",
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "didResolutionMetadata": {
+                      "type": "object",
+                      "properties": {
+                        "contentType": {
+                          "type": "string"
+                        },
+                        "error": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "DID Resolution Result (W3C format)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "DID Resolution Result (W3C format)",
+                  "type": "object",
+                  "required": [
+                    "didDocument",
+                    "didDocumentMetadata",
+                    "didResolutionMetadata"
+                  ],
+                  "properties": {
+                    "didDocument": {
+                      "description": "Resolved DID Document"
+                    },
+                    "didDocumentMetadata": {
+                      "description": "DID Document metadata",
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "didResolutionMetadata": {
+                      "type": "object",
+                      "properties": {
+                        "contentType": {
+                          "type": "string"
+                        },
+                        "error": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/did/didcomm-doc": {
+      "post": {
+        "summary": "Resolve a DID into the DIDComm DIDDoc format",
+        "tags": [
+          "DID"
+        ],
+        "description": "Resolves a DID and converts the document into the flat shape the /didcomm/* endpoints accept: absolute DID URLs, embedded verification methods hoisted, non-DIDCommMessaging services dropped.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Resolve a DID into the DIDComm WASM DIDDoc format",
+                "type": "object",
+                "required": [
+                  "did"
+                ],
+                "properties": {
+                  "did": {
+                    "description": "DID to resolve and convert to the DIDComm DIDDoc format",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "description": "Resolve a DID into the DIDComm WASM DIDDoc format"
+        },
+        "responses": {
+          "200": {
+            "description": "DID document in the format accepted by the /didcomm/* endpoints",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "DID document in the format accepted by the /didcomm/* endpoints",
+                  "type": "object",
+                  "required": [
+                    "didDoc"
+                  ],
+                  "properties": {
+                    "didDoc": {
+                      "description": "DID Document in DIDComm WASM format",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "keyAgreement",
+                        "authentication",
+                        "verificationMethod",
+                        "service"
+                      ],
+                      "properties": {
+                        "id": {
+                          "description": "DID for the document",
+                          "type": "string"
+                        },
+                        "keyAgreement": {
+                          "description": "DID URLs for key agreement verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "authentication": {
+                          "description": "DID URLs for authentication verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "verificationMethod": {
+                          "description": "Verification methods",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Verification Method",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "controller"
+                            ],
+                            "properties": {
+                              "id": {
+                                "description": "Verification method ID (DID URL)",
+                                "type": "string"
+                              },
+                              "type": {
+                                "description": "Verification method type, e.g. \"JsonWebKey2020\", \"X25519KeyAgreementKey2019\"",
+                                "type": "string",
+                                "example": "JsonWebKey2020"
+                              },
+                              "controller": {
+                                "description": "Controller DID",
+                                "type": "string"
+                              },
+                              "publicKeyJwk": {
+                                "description": "Public key in JWK format",
+                                "type": "object",
+                                "additionalProperties": {}
+                              },
+                              "publicKeyMultibase": {
+                                "description": "Public key in multibase format",
+                                "type": "string"
+                              },
+                              "publicKeyBase58": {
+                                "description": "Public key in base58 format",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "service": {
+                          "description": "Services",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Service",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "serviceEndpoint"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "serviceEndpoint": {
+                                "anyOf": [
+                                  {
+                                    "description": "Service endpoint",
+                                    "type": "object",
+                                    "required": [
+                                      "uri"
+                                    ],
+                                    "properties": {
+                                      "uri": {
+                                        "type": "string"
+                                      },
+                                      "accept": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "routingKeys": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Error response",
+                  "type": "object",
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "properties": {
+                    "error": {
+                      "description": "Error type",
+                      "type": "string"
+                    },
+                    "message": {
+                      "description": "Error message",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Error response",
+                  "type": "object",
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "properties": {
+                    "error": {
+                      "description": "Error type",
+                      "type": "string"
+                    },
+                    "message": {
+                      "description": "Error message",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/did/peer/4": {
+      "post": {
+        "summary": "Create a did:peer:4 from an input document",
+        "tags": [
+          "DID"
+        ],
+        "description": "Derives the long and short form did:peer:4 for an input document and returns both resolved documents, plus a DIDComm-ready DIDDoc for the long form.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Derive a did:peer:4 from an input document",
+                "type": "object",
+                "required": [
+                  "document"
+                ],
+                "properties": {
+                  "document": {
+                    "description": "did:peer:4 input document — a DID document without `id`, using relative references such as `#key-1`",
+                    "type": "object",
+                    "additionalProperties": {},
+                    "example": {
+                      "@context": [
+                        "https://www.w3.org/ns/did/v1"
+                      ],
+                      "verificationMethod": [
+                        {
+                          "id": "#key-1",
+                          "type": "Ed25519VerificationKey2020",
+                          "publicKeyMultibase": "z6MkrCD1csqtgdj8sjrsu8jxcbeyP6m7LiK87NzhfWqio5yr"
+                        }
+                      ],
+                      "authentication": [
+                        "#key-1"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "description": "Derive a did:peer:4 from an input document"
+        },
+        "responses": {
+          "200": {
+            "description": "Derived did:peer:4 identifiers and documents",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Derived did:peer:4 identifiers and documents",
+                  "type": "object",
+                  "required": [
+                    "did",
+                    "shortDid",
+                    "didDocument",
+                    "shortDidDocument",
+                    "didcommDidDoc"
+                  ],
+                  "properties": {
+                    "did": {
+                      "description": "Long form did:peer:4 (self-certifying)",
+                      "type": "string"
+                    },
+                    "shortDid": {
+                      "description": "Short form did:peer:4",
+                      "type": "string"
+                    },
+                    "didDocument": {
+                      "description": "Resolved document for the long form DID"
+                    },
+                    "shortDidDocument": {
+                      "description": "Resolved document for the short form DID"
+                    },
+                    "didcommDidDoc": {
+                      "description": "DID Document in DIDComm WASM format",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "keyAgreement",
+                        "authentication",
+                        "verificationMethod",
+                        "service"
+                      ],
+                      "properties": {
+                        "id": {
+                          "description": "DID for the document",
+                          "type": "string"
+                        },
+                        "keyAgreement": {
+                          "description": "DID URLs for key agreement verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "authentication": {
+                          "description": "DID URLs for authentication verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "verificationMethod": {
+                          "description": "Verification methods",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Verification Method",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "controller"
+                            ],
+                            "properties": {
+                              "id": {
+                                "description": "Verification method ID (DID URL)",
+                                "type": "string"
+                              },
+                              "type": {
+                                "description": "Verification method type, e.g. \"JsonWebKey2020\", \"X25519KeyAgreementKey2019\"",
+                                "type": "string",
+                                "example": "JsonWebKey2020"
+                              },
+                              "controller": {
+                                "description": "Controller DID",
+                                "type": "string"
+                              },
+                              "publicKeyJwk": {
+                                "description": "Public key in JWK format",
+                                "type": "object",
+                                "additionalProperties": {}
+                              },
+                              "publicKeyMultibase": {
+                                "description": "Public key in multibase format",
+                                "type": "string"
+                              },
+                              "publicKeyBase58": {
+                                "description": "Public key in base58 format",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "service": {
+                          "description": "Services",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Service",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "serviceEndpoint"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "serviceEndpoint": {
+                                "anyOf": [
+                                  {
+                                    "description": "Service endpoint",
+                                    "type": "object",
+                                    "required": [
+                                      "uri"
+                                    ],
+                                    "properties": {
+                                      "uri": {
+                                        "type": "string"
+                                      },
+                                      "accept": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "routingKeys": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Error response",
+                  "type": "object",
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "properties": {
+                    "error": {
+                      "description": "Error type",
+                      "type": "string"
+                    },
+                    "message": {
+                      "description": "Error message",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/did/peer/4/create": {
+      "post": {
+        "summary": "Generate keys and the did:peer:4 that names them",
+        "tags": [
+          "DID"
+        ],
+        "description": "Everything /did/peer/4 needs, made here: fresh keys, the input document, the DID, and the secrets to use it. The private keys are in the response, so this suits an identity meant to be temporary — a test, a demo, one side of a conversation nobody will resume. A DID that stands for somebody generates its keys where they will live.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Generate keys and the did:peer:4 that names them. The private keys come back in the response, so this is for identities meant to be temporary.",
+                "type": "object",
+                "properties": {
+                  "keys": {
+                    "description": "Curves to generate, in order, named #key-1 onwards. Ed25519 lands in `authentication`, X25519 in `keyAgreement`; an agent that both proves who it is and receives encrypted messages needs one of each, which is the default.",
+                    "default": [
+                      "Ed25519",
+                      "X25519"
+                    ],
+                    "type": "array",
+                    "items": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "Ed25519"
+                          ]
+                        },
+                        {
+                          "type": "string",
+                          "enum": [
+                            "X25519"
+                          ]
+                        }
+                      ]
+                    }
+                  },
+                  "service": {
+                    "description": "DIDCommMessaging endpoint to publish: a URL to be posted to, or a mediator's DID to be reached through. Left out, the identity has no address, and can only be answered on a connection it opened.",
+                    "type": "string",
+                    "example": "https://example.com/didcomm"
+                  }
+                }
+              }
+            }
+          },
+          "description": "Generate keys and the did:peer:4 that names them. The private keys come back in the response, so this is for identities meant to be temporary."
+        },
+        "responses": {
+          "200": {
+            "description": "A generated did:peer:4 identity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "A generated did:peer:4 identity",
+                  "type": "object",
+                  "required": [
+                    "did",
+                    "shortDid",
+                    "inputDocument",
+                    "didDocument",
+                    "shortDidDocument",
+                    "didcommDidDoc",
+                    "secrets"
+                  ],
+                  "properties": {
+                    "did": {
+                      "description": "Long form did:peer:4 (self-certifying)",
+                      "type": "string"
+                    },
+                    "shortDid": {
+                      "description": "Short form did:peer:4",
+                      "type": "string"
+                    },
+                    "inputDocument": {
+                      "description": "did:peer:4 input document — a DID document without `id`, using relative references such as `#key-1`",
+                      "type": "object",
+                      "additionalProperties": {},
+                      "example": {
+                        "@context": [
+                          "https://www.w3.org/ns/did/v1"
+                        ],
+                        "verificationMethod": [
+                          {
+                            "id": "#key-1",
+                            "type": "Ed25519VerificationKey2020",
+                            "publicKeyMultibase": "z6MkrCD1csqtgdj8sjrsu8jxcbeyP6m7LiK87NzhfWqio5yr"
+                          }
+                        ],
+                        "authentication": [
+                          "#key-1"
+                        ]
+                      }
+                    },
+                    "didDocument": {
+                      "description": "Resolved document for the long form DID"
+                    },
+                    "shortDidDocument": {
+                      "description": "Resolved document for the short form DID"
+                    },
+                    "didcommDidDoc": {
+                      "description": "DID Document in DIDComm WASM format",
+                      "type": "object",
+                      "required": [
+                        "id",
+                        "keyAgreement",
+                        "authentication",
+                        "verificationMethod",
+                        "service"
+                      ],
+                      "properties": {
+                        "id": {
+                          "description": "DID for the document",
+                          "type": "string"
+                        },
+                        "keyAgreement": {
+                          "description": "DID URLs for key agreement verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "authentication": {
+                          "description": "DID URLs for authentication verification methods",
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "verificationMethod": {
+                          "description": "Verification methods",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Verification Method",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "controller"
+                            ],
+                            "properties": {
+                              "id": {
+                                "description": "Verification method ID (DID URL)",
+                                "type": "string"
+                              },
+                              "type": {
+                                "description": "Verification method type, e.g. \"JsonWebKey2020\", \"X25519KeyAgreementKey2019\"",
+                                "type": "string",
+                                "example": "JsonWebKey2020"
+                              },
+                              "controller": {
+                                "description": "Controller DID",
+                                "type": "string"
+                              },
+                              "publicKeyJwk": {
+                                "description": "Public key in JWK format",
+                                "type": "object",
+                                "additionalProperties": {}
+                              },
+                              "publicKeyMultibase": {
+                                "description": "Public key in multibase format",
+                                "type": "string"
+                              },
+                              "publicKeyBase58": {
+                                "description": "Public key in base58 format",
+                                "type": "string"
+                              }
+                            }
+                          }
+                        },
+                        "service": {
+                          "description": "Services",
+                          "type": "array",
+                          "items": {
+                            "description": "DID Document Service",
+                            "type": "object",
+                            "required": [
+                              "id",
+                              "type",
+                              "serviceEndpoint"
+                            ],
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "type": {
+                                "type": "string"
+                              },
+                              "serviceEndpoint": {
+                                "anyOf": [
+                                  {
+                                    "description": "Service endpoint",
+                                    "type": "object",
+                                    "required": [
+                                      "uri"
+                                    ],
+                                    "properties": {
+                                      "uri": {
+                                        "type": "string"
+                                      },
+                                      "accept": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
+                                      "routingKeys": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      }
+                                    }
+                                  },
+                                  {
+                                    "type": "string"
+                                  }
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      }
+                    },
+                    "secrets": {
+                      "description": "The private keys, ready to hand to the /didcomm/* endpoints",
+                      "type": "array",
+                      "items": {
+                        "description": "Secret (private key)",
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "type"
+                        ],
+                        "properties": {
+                          "id": {
+                            "description": "Key ID (DID URL)",
+                            "type": "string"
+                          },
+                          "type": {
+                            "description": "Secret type, must match verification method type",
+                            "type": "string",
+                            "example": "JsonWebKey2020"
+                          },
+                          "privateKeyJwk": {
+                            "description": "Private key in JWK format",
+                            "type": "object",
+                            "additionalProperties": {}
+                          },
+                          "privateKeyMultibase": {
+                            "description": "Private key in multibase format",
+                            "type": "string"
+                          },
+                          "privateKeyBase58": {
+                            "description": "Private key in base58 format",
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Error response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Error response",
+                  "type": "object",
+                  "required": [
+                    "error",
+                    "message"
+                  ],
+                  "properties": {
+                    "error": {
+                      "description": "Error type",
+                      "type": "string"
+                    },
+                    "message": {
+                      "description": "Error message",
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/did/peer/4/resolve-short": {
+      "post": {
+        "summary": "Resolve a short form did:peer:4 from its input document",
+        "tags": [
+          "DID"
+        ],
+        "description": "A short form did:peer:4 carries no document, so the caller must supply the input document it was derived from.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "description": "Resolve a short form did:peer:4 from its input document",
+                "type": "object",
+                "required": [
+                  "document"
+                ],
+                "properties": {
+                  "document": {
+                    "description": "did:peer:4 input document — a DID document without `id`, using relative references such as `#key-1`",
+                    "type": "object",
+                    "additionalProperties": {},
+                    "example": {
+                      "@context": [
+                        "https://www.w3.org/ns/did/v1"
+                      ],
+                      "verificationMethod": [
+                        {
+                          "id": "#key-1",
+                          "type": "Ed25519VerificationKey2020",
+                          "publicKeyMultibase": "z6MkrCD1csqtgdj8sjrsu8jxcbeyP6m7LiK87NzhfWqio5yr"
+                        }
+                      ],
+                      "authentication": [
+                        "#key-1"
+                      ]
+                    }
+                  },
+                  "did": {
+                    "description": "Expected short form DID; when supplied, the document is verified to hash to it",
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          },
+          "description": "Resolve a short form did:peer:4 from its input document"
+        },
+        "responses": {
+          "200": {
+            "description": "DID Resolution Result (W3C format)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "DID Resolution Result (W3C format)",
+                  "type": "object",
+                  "required": [
+                    "didDocument",
+                    "didDocumentMetadata",
+                    "didResolutionMetadata"
+                  ],
+                  "properties": {
+                    "didDocument": {
+                      "description": "Resolved DID Document"
+                    },
+                    "didDocumentMetadata": {
+                      "description": "DID Document metadata",
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "didResolutionMetadata": {
+                      "type": "object",
+                      "properties": {
+                        "contentType": {
+                          "type": "string"
+                        },
+                        "error": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "DID Resolution Result (W3C format)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "DID Resolution Result (W3C format)",
+                  "type": "object",
+                  "required": [
+                    "didDocument",
+                    "didDocumentMetadata",
+                    "didResolutionMetadata"
+                  ],
+                  "properties": {
+                    "didDocument": {
+                      "description": "Resolved DID Document"
+                    },
+                    "didDocumentMetadata": {
+                      "description": "DID Document metadata",
+                      "type": "object",
+                      "additionalProperties": {}
+                    },
+                    "didResolutionMetadata": {
+                      "type": "object",
+                      "properties": {
+                        "contentType": {
+                          "type": "string"
+                        },
+                        "error": {
+                          "type": "string"
+                        },
+                        "message": {
+                          "type": "string"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Liveness check",
+        "tags": [
+          "DID"
+        ],
+        "responses": {
+          "200": {
+            "description": "Default Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "status"
+                  ],
+                  "properties": {
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "ok"
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "DIDComm",
+      "description": "Stateless DIDComm pack/unpack operations"
+    },
+    {
+      "name": "DID",
+      "description": "DID resolution"
+    }
+  ]
+}
