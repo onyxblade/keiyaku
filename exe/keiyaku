@@ -1,0 +1,41 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "optparse"
+require "keiyaku/emitter"
+
+options = { out: "." }
+
+parser = OptionParser.new do |o|
+  o.banner = "usage: keiyaku SPEC --module NAME [--out DIR]"
+  o.separator ""
+  o.on("-m", "--module NAME", "Ruby module to nest the client and its types in")
+  o.on("-o", "--out DIR", "Directory to write into (default: the working directory)")
+  o.separator ""
+  o.on("-v", "--version", "Print the version and exit") { puts Keiyaku::VERSION; exit }
+  o.on("-h", "--help", "Print this message and exit") { puts o; exit }
+end
+parser.parse!(into: options)
+
+spec = ARGV.shift
+abort parser.to_s unless spec && options[:module]
+abort "keiyaku: #{spec}: no such file" unless File.file?(spec)
+
+FileUtils.mkdir_p(options[:out])
+emitter = Keiyaku::Emitter.new(spec, namespace: options[:module])
+operations = emitter.emit(options[:out])
+
+built = operations.count { !_1[:unsupported] }
+puts "#{built}/#{operations.size} operations, #{Dir[File.join(options[:out], "*")].size} files"
+
+unless emitter.notes.empty?
+  puts "\nnotes:"
+  emitter.notes.uniq.each { puts "  - #{_1}" }
+end
+
+unless emitter.refusals.empty?
+  puts "\nrefused to generate #{emitter.refusals.size} operation(s):"
+  emitter.refusals.each { puts "  - #{_1.operation}: #{_1.reason}" }
+  puts "\nCalling one raises Keiyaku::Unsupported. Write those by hand."
+end

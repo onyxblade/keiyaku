@@ -1,11 +1,13 @@
 # frozen_string_literal: true
 
+require "bundler/gem_tasks"
+
 EXAMPLES = { "petstore" => "Petstore", "widgets" => "Widgets" }.freeze
 
 desc "Regenerate the checked-in example clients"
 task :examples do
-  EXAMPLES.each do |name, namespace|
-    sh "ruby bin/generate examples/#{name}.yaml #{namespace} examples/#{name}"
+  EXAMPLES.each do |name, mod|
+    sh "ruby -Ilib exe/keiyaku examples/#{name}.yaml --module #{mod} --out examples/#{name}"
   end
 end
 
@@ -17,9 +19,10 @@ task :verify do
   end
 end
 
-desc "Check the generated RBS parses"
+desc "Check the generated RBS resolves against the runtime's own signatures"
 task :rbs do
-  sh "rbs parse #{EXAMPLES.keys.map { "examples/#{_1}/#{_1}.rbs" }.join(" ")}"
+  includes = ["sig", *EXAMPLES.keys.map { "examples/#{_1}" }]
+  sh "rbs #{includes.map { "-I #{_1}" }.join(" ")} validate"
 end
 
 desc "Drive the generated clients against a real socket"

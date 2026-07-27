@@ -1,0 +1,103 @@
+# Signatures for the runtime. Generated clients declare `class Client <
+# Keiyaku::Client` and `class Pet < ::Data`, so without these their own RBS
+# would not resolve — which would defeat the point of emitting it.
+
+module Keiyaku
+  VERSION: String
+
+  # A parameter that was not passed, distinct from one passed as nil.
+  UNSET: untyped
+
+  class Error < StandardError
+  end
+
+  class CastError < Error
+  end
+
+  class Unsupported < Error
+  end
+
+  class HTTPError < Error
+    attr_reader status: Integer
+    attr_reader headers: Hash[String, String]
+    attr_reader body: String?
+
+    # The decoded body: a model if the operation documents a schema for this
+    # status, otherwise whatever JSON.parse returned.
+    attr_reader parsed: untyped
+
+    def initialize: (status: Integer, headers: Hash[String, String], body: String?, ?parsed: untyped) -> void
+  end
+
+  class ClientError < HTTPError
+  end
+
+  class ServerError < HTTPError
+  end
+
+  def self.camelize: (String | Symbol) -> String
+  def self.snake: (String | Symbol) -> String
+
+  # Types are values, not a type language: Integer, [Pet], { String => Pet },
+  # :bool, :any. There is nothing more precise to say about them here.
+  def self.coerce: (untyped type, untyped value, String path) -> untyped
+  def self.dump: (untyped) -> untyped
+
+  # Returns a Data subclass built at runtime; the generator emits a proper
+  # class declaration for each one alongside the code.
+  def self.model: (?required: Array[Symbol], ?from: Hash[Symbol, String], **untyped) -> untyped
+
+  class OneOf
+    def self.[]: (*untyped variants, on: String, ?map: Hash[untyped, untyped]) -> OneOf
+    def initialize: (Array[untyped], String, Hash[untyped, untyped]) -> void
+    def cast: (untyped, ?String) -> untyped
+  end
+
+  module Serialize
+    def self.query: (Hash[String, untyped]) -> Array[[String, String]]
+    def self.path: (untyped) -> String
+    def self.stringify: (untyped) -> String
+  end
+
+  # Anything that can make a request. Pass one as `adapter:` to put the client
+  # on an HTTP stack the application already has.
+  interface _Adapter
+    def call: (Symbol verb, untyped uri, Hash[String, String] headers, String? body) -> [Integer, Hash[String, String], String?]
+  end
+
+  class NetHTTPAdapter
+    include _Adapter
+
+    def initialize: (?timeout: Integer | Float) -> void
+  end
+
+  class Client
+    def self.operations: () -> Hash[Symbol, Hash[Symbol, untyped]]
+    def self.server: (?String?) -> String?
+    def self.security: (?untyped) -> untyped
+
+    def self.get: (Symbol name, String template, **untyped) -> void
+    def self.post: (Symbol name, String template, **untyped) -> void
+    def self.put: (Symbol name, String template, **untyped) -> void
+    def self.patch: (Symbol name, String template, **untyped) -> void
+    def self.delete: (Symbol name, String template, **untyped) -> void
+    def self.head: (Symbol name, String template, **untyped) -> void
+    def self.options: (Symbol name, String template, **untyped) -> void
+
+    def self.operation: (
+      Symbol verb, Symbol name, String template,
+      ?query: Array[Symbol], ?header: Hash[String, Symbol],
+      ?body: untyped, ?form: untyped, ?content_type: String?,
+      ?into: untyped, ?errors: Hash[untyped, untyped], ?security: untyped
+    ) -> void
+
+    def self.unsupported: (Symbol name, String reason) -> void
+
+    attr_reader base_url: String
+
+    def initialize: (
+      ?base_url: String?, ?auth: untyped, ?adapter: _Adapter?,
+      ?timeout: Integer | Float, ?retries: Integer, ?logger: untyped
+    ) -> void
+  end
+end

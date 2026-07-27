@@ -5,6 +5,7 @@ require "json"
 require "uri"
 require "time"
 require "date"
+require_relative "version"
 
 # A runtime for generated OpenAPI clients.
 #

@@ -12,7 +12,7 @@ operations, 6 schemas):
 | --- | --- | --- |
 | generated Ruby | 4,316 lines across 25 files | **68 lines across 2 files** |
 | RBS | none | 82 lines |
-| shared runtime | — | 373 lines, written once |
+| shared runtime | — | 374 lines, written once |
 
 The whole client:
 
@@ -45,12 +45,21 @@ Pet = Keiyaku.model(
 
 ## Usage
 
+```ruby
+gem "keiyaku"
 ```
-ruby bin/generate examples/petstore.yaml Petstore examples/petstore
+
+One gem, no dependencies. The runtime is what an application loads; the
+generator is a separate file that only the executable pulls in, so nothing
+that merely calls an API ever loads it.
+
+```
+keiyaku petstore.yaml --module Petstore --out lib/petstore
 ```
 
 Three files land in the output directory: `types.rb`, `client.rb`, and an
-`.rbs` carrying the type detail. Then:
+`.rbs` carrying the type detail. Check them in — they are source, not build
+output, and reading the diff is how you see what changed in an API. Then:
 
 ```ruby
 client = Petstore::Client.new(auth: ENV["PETSTORE_KEY"])
@@ -81,6 +90,11 @@ def update_pet_with_form: (Integer pet_id, ?name: String?, ?status: String?) -> 
 def get_inventory: () -> Hash[String, Integer]
 ```
 
+The gem ships `sig/keiyaku.rbs` for the runtime itself, so a generated
+`class Client < Keiyaku::Client` resolves rather than dangling. `rake rbs`
+validates the examples against it, which is the check that would have caught
+the generated RBS being subtly unresolvable.
+
 The DSL builds real methods with real arity — `get :get_pet_by_id,
 "/pet/{petId}"` defines `get_pet_by_id(pet_id)`, and calling it wrong raises
 `ArgumentError` at the call, not a confusing failure inside the client. A `!`
@@ -103,7 +117,7 @@ Calling one raises Keiyaku::Unsupported. Write those by hand.
 
 ## Tests
 
-`rake` regenerates the examples, checks the RBS parses, and runs `test/e2e.rb`,
+`rake` regenerates the examples, validates their RBS, and runs `test/e2e.rb`,
 which drives the generated clients against a real socket — 33 checks covering
 name mapping in both directions, nested and array models, pattern matching,
 query array explosion, header parameters overriding credentials, typed error
@@ -122,6 +136,5 @@ auth, a `default` error response, and JSON fields that are already snake_case
   wire it up, so unions currently degrade to `:any`
 - regeneration overwrites wholesale; there is no merge strategy for hand edits
 - retries back off exponentially with no jitter
-- no gemspec — `keiyaku`, `keiyaku-gen` and `keiyaku-runtime` are all free on
-  RubyGems, but the runtime/generator split has not been made yet, so nothing
-  is packaged. The name is provisional.
+- nothing is published; the gem builds and installs but has never been pushed,
+  and the name is still provisional
