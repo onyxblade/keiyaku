@@ -64,7 +64,15 @@ paths:
     get:
       operationId: listWidgets
       parameters:
-        - { name: filter, in: query, style: deepObject, schema: { type: object } }
+        # `deepObject` on an array, which is what Stripe writes on `expand`.
+        # The style's one row in the specification covers objects and marks
+        # array n/a, so there is nothing to generate and this operation is the
+        # document's refusal.
+        - name: expand
+          in: query
+          style: deepObject
+          explode: true
+          schema: { type: array, items: { type: string } }
       responses:
         "200":
           description: ok
@@ -161,6 +169,18 @@ paths:
       parameters:
         - { name: q, in: query, required: true, schema: { type: string } }
         - { name: cursor, in: query, schema: { type: string } }
+        # The other side of the same line: `deepObject` on an object is the
+        # one thing the style does mean, and the properties give it a type of
+        # its own rather than leaving the caller a bare Hash. It rides along
+        # with the pagination, since a filter holds across pages.
+        - name: filter
+          in: query
+          style: deepObject
+          schema:
+            type: object
+            properties:
+              status: { type: string }
+              since: { type: string, format: date-time }
       x-keiyaku-paginate: { by: cursor, param: cursor, next: next_cursor, items: items }
       responses:
         "200":

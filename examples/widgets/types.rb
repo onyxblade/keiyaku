@@ -20,6 +20,7 @@ module Widgets
   ImportQueued = Keiyaku.model({ job_id: String }, required: %i[job_id], from: { job_id: "job_id" })
   Event = Keiyaku::OneOf[WidgetCreated, WidgetRetired, on: "kind", map: { "created" => WidgetCreated, "retired" => WidgetRetired }]
   UploadPhotoBody = Keiyaku.model({ file: :upload, caption: String, tags: [String] }, required: %i[file])
+  SearchWidgetsFilter = Keiyaku.model({ status: String, since: Time })
   SearchWidgetsResult = Keiyaku.model({
     items: [Widget],
     next_cursor: String

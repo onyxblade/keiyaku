@@ -75,7 +75,8 @@ module Keiyaku
   end
 
   module Serialize
-    def self.query: (Hash[String, untyped]) -> Array[[String, String]]
+    def self.query: (Hash[String, untyped], ?deep: Array[String]) -> Array[[String, String]]
+    def self.deep_object: (String name, untyped value) -> Array[[String, String]]
     def self.path: (untyped) -> String
     def self.stringify: (untyped) -> String
     def self.multipart: (Hash[String, untyped], String boundary) -> String
@@ -134,7 +135,7 @@ module Keiyaku
 
     def self.operation: (
       Symbol verb, Symbol name, String template,
-      ?query: Array[Symbol], ?header: Hash[String, Symbol],
+      ?query: Array[Symbol], ?deep_object: Array[String], ?header: Hash[String, Symbol],
       ?body: untyped, ?form: untyped, ?multipart: untyped, ?content_type: String?,
       ?into: untyped, ?errors: Hash[untyped, untyped], ?security: untyped,
       ?paginate: Hash[Symbol, untyped]?

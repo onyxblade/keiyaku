@@ -210,10 +210,10 @@ subtly wrong. When this one cannot translate a construct faithfully it says so
 at generation time and emits an operation that raises:
 
 ```
-2/3 operations, 3 files
+7/8 operations, 3 files
 
 refused to generate 1 operation(s):
-  - list_widgets: query parameter filter uses style=deepObject
+  - list_widgets: query parameter expand uses style=deepObject on a schema that is not an object
 
 Calling one raises Keiyaku::Unsupported. Write those by hand.
 ```
@@ -224,6 +224,23 @@ cannot see, a body in an encoding it does not know, a security scheme it has
 no way to send. Then, because the mistakes it does not know to look for
 are still in the file it wrote, it reads that file back in another process and
 reports what will not load as a bug in itself.
+
+The line it draws is the specification's, not a shortlist of what has been
+implemented. `deepObject` is the clearest case. Its one row in OpenAPI's table
+of styles is an object, exploded, and that is generated:
+
+```ruby
+client.search_widgets(q: "kaya", filter: Widgets::SearchWidgetsFilter.new(status: "live"))
+# GET /widgets/search?q=kaya&filter[status]=live
+```
+
+The array and primitive columns of that row are written n/a, so an array under
+`deepObject` — which is what Stripe writes on `expand`, on 351 parameters — is
+not something the specification is quiet about, it is something the
+specification says has no spelling. `expand[]=a` and `expand[0]=a` are both
+plausible and neither is described, so that one is refused. Stripe's document
+generates 352 of its 619 operations, and every one of the 267 it does not is
+held up by exactly this.
 
 ## Credentials
 
@@ -301,7 +318,7 @@ than one of the two silently losing its body.
 
 ## Tests
 
-`rake` regenerates the examples, validates their RBS, and runs the specs — 167
+`rake` regenerates the examples, validates their RBS, and runs the specs — 176
 RSpec examples covering name mapping in both directions, nested and array
 models, pattern matching, query array explosion, header parameters overriding
 credentials, per-operation security, typed error bodies, binary, text and
@@ -322,7 +339,9 @@ snake_case (which the camelCase convention would otherwise guess wrong). Its
 `POST /widgets/import` holds the three things a document is entitled to say
 and Ruby is awkward about — a text body, a parameter called `until`, and two
 success statuses that are two types — because each of them was a refusal until
-GitHub's document turned one up.
+GitHub's document turned one up. It also carries both sides of the `deepObject`
+line at once: `GET /widgets/search` takes one on an object and is generated,
+`GET /widgets` takes one on an array and is the document's single refusal.
 
 A third, [`examples/sidecar.json`](examples/sidecar.json), was not written for
 this at all — see above. Its client is generated and its RBS validated on every
@@ -345,8 +364,10 @@ matrix runs 3.2, the floor `Data.define` puts the gemspec at, through 4.0.
 
 ## Not done yet
 
-- `deepObject` query parameters (`filter[status]=x`) are still refused, as are
-  `explode: false` ones
+- `explode: false` query parameters are still refused, and so is every query
+  style but `form` and `deepObject` — `spaceDelimited` and `pipeDelimited` are
+  described by the specification and simply have not been written yet, which is
+  not the same as `deepObject` on an array, which never will be
 - the document has to be one file. A `$ref` into another is refused rather
   than resolved, so anything split up has to be bundled first — by something
   else, since nothing here fetches a URL to find out what a type is

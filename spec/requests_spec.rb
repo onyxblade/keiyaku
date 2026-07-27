@@ -85,6 +85,27 @@ RSpec.describe "building a request" do
       expect(sent.target).to end_with "?tags=good&tags=soft"
     end
 
+    # The one thing `deepObject` means. The parameter has a type of its own,
+    # so the keys that go out are the document's names for them rather than
+    # whatever the caller happened to write.
+    it "spells a deepObject parameter out a key at a time" do
+      widgets.search_widgets(q: "kaya", filter: Widgets::SearchWidgetsFilter.new(status: "live"))
+      expect(sent.query).to include("filter[status]" => "live")
+    end
+
+    it "takes a plain Hash for one, and leaves out what is not set" do
+      widgets.search_widgets(q: "kaya", filter: { "since" => Time.utc(2026, 7, 26), "status" => nil })
+      expect(sent.query).to eq({ "q" => "kaya", "filter[since]" => "2026-07-26T00:00:00Z" })
+    end
+
+    # OpenAPI's table stops at one level, so there is no spelling for a key
+    # whose own value is an object. Sending `filter[at]={"gte"=>1}` would be
+    # the runtime inventing one.
+    it "refuses to nest one rather than sending what #to_s makes of it" do
+      expect { widgets.search_widgets(q: "kaya", filter: { "at" => { "gte" => 1 } }) }
+        .to raise_error(Keiyaku::Error, /does not say how deepObject nests/)
+    end
+
     it "sends header parameters" do
       petstore.delete_pet(5, api_key: "override")
       expect(sent.headers["api_key"]).to eq "override"

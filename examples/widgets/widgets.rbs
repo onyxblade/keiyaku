@@ -50,6 +50,13 @@ module Widgets
     def to_json_hash: () -> Hash[String, untyped]
   end
 
+  class SearchWidgetsFilter < ::Data
+    attr_reader status: String?
+    attr_reader since: Time?
+    def self.cast: (untyped, ?String) -> SearchWidgetsFilter
+    def to_json_hash: () -> Hash[String, untyped]
+  end
+
   class SearchWidgetsResult < ::Data
     attr_reader items: Array[Widget]?
     attr_reader next_cursor: String?
@@ -58,13 +65,13 @@ module Widgets
   end
 
   class Client < Keiyaku::Client
-    def list_widgets: (*untyped) -> bot  # not generated: query parameter filter uses style=deepObject
+    def list_widgets: (*untyped) -> bot  # not generated: query parameter expand uses style=deepObject on a schema that is not an object
     def create_widget: (Widget body) -> Widget
     def get_widget: (Integer id) -> Widget
     def upload_photo: (Integer id, UploadPhotoBody body) -> Widget
     def import_widgets: (String body, ?until: Time?) -> (Array[Widget] | ImportQueued)
-    def search_widgets: (q: String, ?cursor: String?) -> SearchWidgetsResult
-    def search_widgets_each: (q: String, ?cursor: String?) ?{ (Widget) -> void } -> Enumerator[Widget, void]
+    def search_widgets: (q: String, ?cursor: String?, ?filter: SearchWidgetsFilter?) -> SearchWidgetsResult
+    def search_widgets_each: (q: String, ?cursor: String?, ?filter: SearchWidgetsFilter?) ?{ (Widget) -> void } -> Enumerator[Widget, void]
     def widget_feed: () -> Array[Widget]
     def widget_feed_each: () ?{ (Widget) -> void } -> Enumerator[Widget, void]
     def list_events: (Integer id, ?limit: Integer?, ?offset: Integer?) -> Array[event]

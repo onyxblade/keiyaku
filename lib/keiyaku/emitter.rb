@@ -495,7 +495,7 @@ module Keiyaku
     def translate(verb, template, op, inherited_params, name)
       deps = []
       params = (inherited_params + (op["parameters"] || [])).map { resolve(_1) }
-      query, header, types = [], {}, {}
+      query, deep_object, header, types = [], [], {}, {}
 
       params.each do |param|
         style = param["style"] || (param["in"] == "query" ? "form" : "simple")
@@ -506,8 +506,13 @@ module Keiyaku
         when "path"
           raise Impossible, "path parameter #{param["name"]} uses style=#{style}" unless style == "simple"
         when "query"
-          raise Impossible, "query parameter #{param["name"]} uses style=#{style}" unless style == "form"
-          raise Impossible, "query parameter #{param["name"]} uses explode=false" unless explode
+          if style == "deepObject"
+            check_deep_object(param)
+            deep_object << param["name"]
+          else
+            raise Impossible, "query parameter #{param["name"]} uses style=#{style}" unless style == "form"
+            raise Impossible, "query parameter #{param["name"]} uses explode=false" unless explode
+          end
 
           query << "#{param["name"]}#{"!" if param["required"]}"
         when "header"
@@ -565,7 +570,7 @@ module Keiyaku
       success, errors = responses(op, name, deps)
       into = success.empty? ? nil : success
 
-      { name:, verb:, template:, query:, header:, types:, body:, form:, multipart:, content_type:, into:,
+      { name:, verb:, template:, query:, deep_object:, header:, types:, body:, form:, multipart:, content_type:, into:,
         errors:, hint:, paginate: (hint && hash_source(hint)),
         security: @security.source_for(name, op), summary: op["summary"], deps: }
     end
@@ -605,6 +610,35 @@ module Keiyaku
       # table to consult at runtime.
       success = success.first(1).to_h if success.values.uniq.size == 1
       [success, errors]
+    end
+
+    # `deepObject` has exactly one row in the specification's table of styles:
+    # an object, exploded, spelled out a key at a time as filter[status]=live.
+    # The array and primitive columns of that row are written n/a, so an array
+    # under it — which is what Stripe's `expand` is, on 351 parameters — is not
+    # a rendering the specification is quiet about, it is one the specification
+    # says does not exist. Guessing at PHP's `expand[]=` or at `expand[0]=` is
+    # exactly the kind of plausible wrong answer this generator does not give.
+    #
+    # `explode` nominally defaults to false outside `form`, but there is no
+    # unexploded deepObject to default to. A document that leaves it out is
+    # taking the one rendering the style has; a document that writes false is
+    # asking for a second one, and gets told there isn't one.
+    def check_deep_object(param)
+      name = param["name"]
+      raise Impossible, "query parameter #{name} uses style=deepObject with explode=false" if param["explode"] == false
+      return if object_schema?(param["schema"])
+
+      raise Impossible, "query parameter #{name} uses style=deepObject on a schema that is not an object"
+    end
+
+    # `type` is how a document says a schema is an object; `properties` is how
+    # one that left the type out says it anyway.
+    def object_schema?(schema)
+      schema = merge_all_of(resolve(schema || {}))
+      kind = Array(schema["type"]) - ["null"]
+
+      kind == ["object"] || (kind.empty? && schema.key?("properties"))
     end
 
     # A hint that names a parameter the operation does not have would produce a
@@ -740,6 +774,7 @@ module Keiyaku
 
         args = [":#{op[:name]}", op[:template].inspect]
         args << "query: %i[#{op[:query].join(" ")}]" if op[:query].any?
+        args << "deep_object: %w[#{op[:deep_object].join(" ")}]" if op[:deep_object].any?
         args << "header: { #{op[:header].map { |json, ruby| "#{json.inspect} => :#{ruby}" }.join(", ")} }" if op[:header].any?
         args << "body: #{op[:body]}" if op[:body]
         args << "form: #{op[:form]}" if op[:form]

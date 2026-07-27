@@ -246,20 +246,43 @@ module Keiyaku
     def read = @io.respond_to?(:read) ? @io.read : @io.to_s
   end
 
-  # Serialize parameters per the OpenAPI style/explode rules.
-  # Only the defaults are implemented: `form` for query, `simple` for path and
-  # header. The generator refuses anything else rather than guessing.
+  # Serialize parameters per the OpenAPI style/explode rules. Implemented are
+  # the defaults — `form` for query, `simple` for path and header — and the
+  # one rendering `deepObject` has. The generator refuses anything else rather
+  # than guessing, so a name reaching `deep:` here has already been checked.
   module Serialize
     module_function
 
-    def query(params)
+    def query(params, deep: [])
       params.flat_map do |name, value|
+        next deep_object(name, value) if deep.include?(name) && !value.nil?
+
         case value
         when nil    then []
         when Array  then value.map { |v| [name, stringify(v)] }
         when Hash   then value.map { |k, v| [k.to_s, stringify(v)] }
         else [[name, stringify(value)]]
         end
+      end
+    end
+
+    # filter[status]=live&filter[since]=2026-07-27, which is the whole of what
+    # `deepObject` means. The specification stops at one level — it says
+    # nothing about what a key's own value may be — so a value that is itself
+    # an object or an array is refused rather than sent as whatever #to_s
+    # makes of it, which no server could read back.
+    def deep_object(name, value)
+      fields = Keiyaku.dump(value)
+      raise Error, "#{name} is #{value.class}, and a deepObject parameter is an object" unless fields.is_a?(Hash)
+
+      fields.filter_map do |key, inner|
+        next if inner.nil?
+
+        if inner.is_a?(Hash) || inner.is_a?(Array)
+          raise Error, "#{name}[#{key}] is #{inner.class}; OpenAPI does not say how deepObject nests"
+        end
+
+        ["#{name}[#{key}]", stringify(inner)]
       end
     end
 
@@ -392,6 +415,10 @@ module Keiyaku
       # Required query/header parameters are marked with a trailing bang:
       #   get :find, "/pets", query: %i[status! limit]
       #
+      # `deep_object:` names the query parameters the document gave
+      # `style: deepObject`, which go out spelled a key at a time:
+      #   get :list, "/widgets", query: %i[filter], deep_object: %w[filter]
+      #
       # `paginate:` describes how to walk the operation. OpenAPI says nothing
       # about pagination, so nothing here is inferred — the shape is declared:
       #
@@ -402,7 +429,7 @@ module Keiyaku
       #
       # `items:` names the field holding the page's contents when the response
       # is an envelope; without it the response is the array itself.
-      def operation(verb, name, template, query: [], header: {}, body: nil, form: nil,
+      def operation(verb, name, template, query: [], deep_object: [], header: {}, body: nil, form: nil,
                     multipart: nil, content_type: nil, into: nil, errors: {},
                     security: :inherit, paginate: nil)
         path_params = template.scan(/\{(\w+)\}/).flatten
@@ -414,7 +441,8 @@ module Keiyaku
           # nil is the operation that said nothing and takes the document's
           # requirement; every other spelling is a requirement of its own.
           security: (security == :inherit ? nil : requirement(security)),
-          path: path_params, query: query_params, header: header_params
+          path: path_params, query: query_params, header: header_params,
+          deep_object: deep_object.map(&:to_s)
         }
 
         positional = path_params.map { Keiyaku.snake(_1) }
@@ -532,7 +560,7 @@ module Keiyaku
         uri.query = [uri.query, URI.encode_www_form(credentials)].compact.reject(&:empty?).join("&") if credentials.any?
       else
         uri = URI.parse(@base_url + op[:template].gsub(/\{(\w+)\}/) { Serialize.path(path.fetch($1)) })
-        pairs = Serialize.query(query.reject { |_, v| UNSET.equal?(v) }) + credentials
+        pairs = Serialize.query(query.reject { |_, v| UNSET.equal?(v) }, deep: op[:deep_object]) + credentials
         uri.query = URI.encode_www_form(pairs) unless pairs.empty?
       end
 

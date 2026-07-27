@@ -10,6 +10,11 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
   fields the document never mentioned; constructing one refuses a keyword it
   does not know, which is a typo rather than a server that has moved on
 - `style`/`explode` defaults (`form` for query, `simple` for path and header)
+- `style: deepObject` query parameters, which go out as `filter[status]=live`.
+  The style has one rendering in the specification and it is an object's, so
+  that is what is generated: an array under `deepObject`, which is what Stripe
+  writes on `expand`, is refused rather than guessed at, and so is a value
+  nested a level deeper than the specification describes
 - security is compiled per operation, from the operation's own requirement or
   the document's: alternatives, schemes required together, and `security: []`.
   Credentials are given by scheme name, and a scheme nothing can send refuses

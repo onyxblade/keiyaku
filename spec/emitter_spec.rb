@@ -82,6 +82,58 @@ RSpec.describe Keiyaku::Emitter do
     end
   end
 
+  # `deepObject` has one row in the specification's table of styles, and that
+  # row is an object, exploded. Everything else a document can write under the
+  # name is a rendering the specification does not describe.
+  describe "a deepObject query parameter" do
+    def styled(param)
+      document(<<~YAML)
+        operationId: listThings
+        parameters:
+          - { name: filter, in: query, style: deepObject, #{param} }
+        responses: { "200": { description: ok } }
+      YAML
+    end
+
+    it "is generated when it is an object" do
+      emitter = generate(styled("schema: { type: object }"))
+      expect(emitter.refusals).to be_empty
+    end
+
+    # The default for `explode` outside `form` is nominally false, but there is
+    # no unexploded deepObject for a document to be defaulting to.
+    it "is generated when the document leaves explode out, and when it writes true" do
+      emitter = generate(styled("explode: true, schema: { type: object }"))
+      expect(emitter.refusals).to be_empty
+    end
+
+    it "declares which parameters go out that way, so the runtime need not guess" do
+      generate(styled("schema: { type: object }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb"))).to include(%(deep_object: %w[filter]))
+      end
+    end
+
+    # Stripe writes this on 351 parameters, all of them called `expand`.
+    it "is refused on an array, which the specification marks n/a" do
+      emitter = generate(styled("explode: true, schema: { type: array, items: { type: string } }"))
+      expect(emitter.refusals.first.reason).to eq(
+        "query parameter filter uses style=deepObject on a schema that is not an object"
+      )
+    end
+
+    it "is refused on a union, which is not an object either" do
+      emitter = generate(styled("schema: { anyOf: [{ type: object }, { type: integer }] }"))
+      expect(emitter.refusals.first.reason).to include("is not an object")
+    end
+
+    # Written out, it is asking for the second rendering rather than failing to
+    # ask for the first.
+    it "is refused when the document writes explode: false" do
+      emitter = generate(styled("explode: false, schema: { type: object }"))
+      expect(emitter.refusals.first.reason).to include("style=deepObject with explode=false")
+    end
+  end
+
   # Whether the emitted source parses and runs is not something reading it can
   # settle, so this loads it. The schema is the shape that used to fail: a
   # DIDComm message, whose properties collide with the model's own options.
