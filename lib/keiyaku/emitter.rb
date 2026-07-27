@@ -5,6 +5,7 @@ require "json"
 require "rbconfig"
 require_relative "runtime"
 require_relative "names"
+require_relative "emitter/rbs"
 
 module Keiyaku
   # Turns an OpenAPI document into three files: value types, a client, and RBS.
@@ -55,6 +56,7 @@ module Keiyaku
       @poisoned = {}    # constant name => why nothing may be typed as it
       @refusals = []
       @notes = []
+      @rbs = RBS.new(namespace:, models: @models, unions: @unions)
     end
 
     # The generated files, and whether Ruby could read them back. Anything
@@ -67,7 +69,7 @@ module Keiyaku
       operations = collect_operations
       File.write(File.join(dir, "types.rb"), types_source)
       File.write(File.join(dir, "client.rb"), client_source(operations))
-      File.write(File.join(dir, "#{Keiyaku.snake(@namespace)}.rbs"), rbs_source(operations))
+      File.write(File.join(dir, "#{Keiyaku.snake(@namespace)}.rbs"), @rbs.source(sorted_models, operations))
       @broken = verify ? load_check(dir) : nil
       operations
     end
@@ -184,7 +186,7 @@ module Keiyaku
       if schema["oneOf"] || schema["anyOf"]
         deps = []
         source = collapse_union(schema, const, deps)
-        expansion = source ? rbs_type(source) : nil
+        expansion = source ? @rbs.type_for(source) : nil
         source, expansion = union_for(schema, const, deps) unless source
 
         @models[const] = source
@@ -210,7 +212,7 @@ module Keiyaku
         context = Array(kind).include?("array") ? "#{const} item" : const
         source = type_for(schema, context, deps)
         @models[const] = source
-        @unions[const] = rbs_type(source)
+        @unions[const] = @rbs.type_for(source)
         @deps[const] = deps.uniq - [const]
         return
       end
@@ -849,162 +851,12 @@ module Keiyaku
       name.match?(/\A[a-zA-Z_][a-zA-Z0-9_]*\z/) ? "#{name}:" : "#{name.inspect}:"
     end
 
-    RBS_SCALARS = {
-      ":bool" => "bool", ":any" => "untyped", ":binary" => "String", ":text" => "String",
-      ":upload" => "Keiyaku::Upload | IO"
-    }.freeze
-
-    def rbs_type(source)
-      # A recursive type is written as a Proc in the source and as itself here:
-      # RBS has no trouble with a class that mentions its own name.
-      return rbs_type(source[/\A-> \{(.*)\}\z/m, 1].strip) if source.start_with?("-> {")
-      return "Array[#{rbs_type(source[1..-2].strip)}]" if source.start_with?("[")
-      return "Hash[String, #{rbs_type(source[/=>(.*)}/m, 1].strip)}]" if source.start_with?("{")
-
-      # A named union is referred to by its alias; an inline one is spelled out.
-      if (expansion = @unions[source])
-        return source.start_with?("Keiyaku::OneOf[") ? expand_union(expansion) : Keiyaku.snake(source)
-      end
-
-      RBS_SCALARS[source] || source
-    end
-
-    # A union is written bare everywhere but one place: RBS reads `|` after a
-    # return type as the start of another overload, so `-> A | B` is a syntax
-    # error where `attr_reader a: A | B` is fine. Only a top-level `|` needs
-    # the parentheses — inside `Array[...]` the brackets already close it off.
-    def rbs_return(type)
-      depth = 0
-      type.each_char do |char|
-        case char
-        when "[" then depth += 1
-        when "]" then depth -= 1
-        when "|" then return "(#{type})" if depth.zero?
-        end
-      end
-      type
-    end
-
     # The operation's `into:`. One success response is the type itself; several
     # are a table for the runtime to read the status against.
     def into_source(into)
       return into.values.first if into.size == 1
 
       "Keiyaku::ByStatus[#{into.map { |status, type| "#{status} => #{type}" }.join(", ")}]"
-    end
-
-    # And how that reads as a return type. `untyped` in a union says nothing
-    # the union did not already say and takes the rest of it down with it, so
-    # an operation with one response the document left open is that: untyped.
-    def into_rbs(into)
-      types = into.values.uniq.map { rbs_type(_1) }
-      types.include?("untyped") ? "untyped" : types.join(" | ")
-    end
-
-    # What the enumerator yields: the element of the array being paged over,
-    # which is either the response itself or a field of the envelope.
-    def paginate_element(op)
-      # A page is one shape; an operation whose statuses disagree is not one
-      # this can name, and pagination over it would be walking two types.
-      return "untyped" unless op[:into]&.size == 1
-
-      source = op[:into].values.first
-      if (items = op[:hint]["items"])
-        model = @models[source]
-        return "untyped" unless model.is_a?(Model)
-
-        source = model.fields[Keiyaku.snake(items)]
-      end
-
-      source.to_s.start_with?("[") ? rbs_type(source[1..-2].strip) : "untyped"
-    end
-
-    # RBS has no constant that stands for a union, so a union component becomes
-    # a type alias for signatures to use, plus the constant itself for callers
-    # that reach for `Event.cast`.
-    def union_rbs(const)
-      source = @models[const]
-      constant =
-        if source.start_with?("Keiyaku::OneOf[") then "Keiyaku::OneOf"
-        elsif source == ":any" then "Symbol"
-        else "untyped" # a union that collapsed to one type, so the constant is that type
-        end
-
-      "  type #{Keiyaku.snake(const)} = #{expand_union(@unions[const])}\n  #{const}: #{constant}"
-    end
-
-    # A variant of a union may be a component that turned out not to be a
-    # class — an array, a scalar — and RBS refers to one of those by its type
-    # alias. The constant is still there, but it holds a value rather than
-    # naming a type, so a signature that used it would not resolve.
-    def expand_union(expansion)
-      expansion.split(" | ").map { |name| @models[name].is_a?(String) ? Keiyaku.snake(name) : name }.join(" | ")
-    end
-
-    def rbs_source(operations)
-      models = sorted_models.map do |const|
-        model = @models[const]
-        next union_rbs(const) if model.is_a?(String)
-
-        # `attr_reader "+1":` is not RBS, in either spelling — the name is not
-        # a method, so it is typed where it is actually read instead.
-        bare, quoted = model.fields.partition { |field, _| Names.bare?(field) }
-        declared = lambda do |field, type|
-          "#{rbs_type(type)}#{"?" unless model.required.include?(field)}"
-        end
-
-        readers = bare.map { |field, type| "    attr_reader #{field}: #{declared.(field, type)}" }
-        unless quoted.empty?
-          overloads = quoted.map { |field, type| "(#{field.inspect}) -> #{declared.(field, type)}" }
-          readers << "    def []: #{overloads.join("\n           | ")}"
-        end
-        <<~RBS.chomp
-            class #{const} < ::Data
-          #{readers.join("\n")}
-              def self.cast: (untyped, ?String) -> #{const}
-              def to_json_hash: () -> Hash[String, untyped]
-            end
-        RBS
-      end
-
-      methods = operations.filter_map do |op|
-        next if op[:name].nil?
-        next "    def #{op[:name]}: (*untyped) -> bot  # not generated: #{op[:unsupported]}" if op[:unsupported]
-
-        types = op[:types]
-        positional = op[:template].scan(/\{(\w+)\}/).flatten.map do |param|
-          "#{rbs_type(types[param] || ":any")} #{Keiyaku.snake(param)}"
-        end
-        payload = op[:body] || op[:form] || op[:multipart]
-        positional << "#{rbs_type(payload)} body" if payload
-
-        keyword = lambda do |json_name, declared|
-          required = declared.end_with?("!")
-          type = rbs_type(types[json_name] || ":any")
-          "#{"?" unless required}#{Keiyaku.snake(declared.delete_suffix("!"))}: #{type}#{"?" unless required}"
-        end
-        keywords = op[:query].map { keyword.(_1.delete_suffix("!"), _1) } +
-                   op[:header].map { |json, ruby| keyword.(json, ruby) }
-        arguments = (positional + keywords).join(", ")
-        signature = "    def #{op[:name]}: (#{arguments}) -> #{op[:into] ? rbs_return(into_rbs(op[:into])) : "untyped"}"
-        next signature unless op[:paginate]
-
-        element = paginate_element(op)
-        "#{signature}\n    def #{op[:name]}_each: (#{arguments}) " \
-          "?{ (#{element}) -> void } -> Enumerator[#{element}, void]"
-      end
-
-      <<~RBS
-        #{HEADER}
-
-        module #{@namespace}
-        #{models.join("\n\n")}
-
-          class Client < Keiyaku::Client
-        #{methods.join("\n")}
-          end
-        end
-      RBS
     end
   end
 end
