@@ -18,12 +18,13 @@ Gem::Specification.new do |spec|
     costs nothing in tooling. Constructs it cannot translate faithfully are
     refused at generation time rather than emitted as plausible guesses.
   TEXT
-  spec.homepage = "https://merely.ca/keiyaku"
+  spec.homepage = "https://github.com/onyxblade/keiyaku"
   spec.license = "MIT"
   spec.required_ruby_version = ">= 3.2" # Data.define
 
   spec.metadata["homepage_uri"] = spec.homepage
-  spec.metadata["changelog_uri"] = "#{spec.homepage}/CHANGELOG.md"
+  spec.metadata["source_code_uri"] = spec.homepage
+  spec.metadata["changelog_uri"] = "#{spec.homepage}/blob/main/CHANGELOG.md"
   spec.metadata["rubygems_mfa_required"] = "true"
 
   # Globbed rather than shelled out to git, so building from an unpacked
