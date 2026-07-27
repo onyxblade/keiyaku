@@ -1,0 +1,82 @@
+# Generated from the OpenAPI document. Edits will be overwritten.
+
+module Petstore
+  class Order < ::Data
+    attr_reader id: Integer?
+    attr_reader pet_id: Integer?
+    attr_reader quantity: Integer?
+    attr_reader ship_date: Time?
+    attr_reader status: String?
+    attr_reader complete: bool?
+    def self.cast: (untyped, ?String) -> Order
+    def to_json_hash: () -> Hash[String, untyped]
+  end
+
+  class Category < ::Data
+    attr_reader id: Integer?
+    attr_reader name: String?
+    def self.cast: (untyped, ?String) -> Category
+    def to_json_hash: () -> Hash[String, untyped]
+  end
+
+  class User < ::Data
+    attr_reader id: Integer?
+    attr_reader username: String?
+    attr_reader first_name: String?
+    attr_reader last_name: String?
+    attr_reader email: String?
+    attr_reader password: String?
+    attr_reader phone: String?
+    attr_reader user_status: Integer?
+    def self.cast: (untyped, ?String) -> User
+    def to_json_hash: () -> Hash[String, untyped]
+  end
+
+  class Tag < ::Data
+    attr_reader id: Integer?
+    attr_reader name: String?
+    def self.cast: (untyped, ?String) -> Tag
+    def to_json_hash: () -> Hash[String, untyped]
+  end
+
+  class Pet < ::Data
+    attr_reader id: Integer?
+    attr_reader name: String
+    attr_reader category: Category?
+    attr_reader photo_urls: Array[String]
+    attr_reader tags: Array[Tag]?
+    attr_reader status: String?
+    def self.cast: (untyped, ?String) -> Pet
+    def to_json_hash: () -> Hash[String, untyped]
+  end
+
+  class ApiResponse < ::Data
+    attr_reader code: Integer?
+    attr_reader type: String?
+    attr_reader message: String?
+    def self.cast: (untyped, ?String) -> ApiResponse
+    def to_json_hash: () -> Hash[String, untyped]
+  end
+
+  class Client < OpenAPI::Client
+    def update_pet: (Pet body) -> Pet
+    def add_pet: (Pet body) -> Pet
+    def find_pets_by_status: (status: String) -> Array[Pet]
+    def find_pets_by_tags: (tags: Array[String]) -> Array[Pet]
+    def get_pet_by_id: (Integer pet_id) -> Pet
+    def update_pet_with_form: (Integer pet_id, ?name: String?, ?status: String?) -> Pet
+    def delete_pet: (Integer pet_id, ?api_key: String?) -> untyped
+    def upload_file: (Integer pet_id, String body, ?additional_metadata: String?) -> ApiResponse
+    def get_inventory: () -> Hash[String, Integer]
+    def place_order: (Order body) -> Order
+    def get_order_by_id: (Integer order_id) -> Order
+    def delete_order: (Integer order_id) -> untyped
+    def create_user: (User body) -> User
+    def create_users_with_list_input: (Array[User] body) -> User
+    def login_user: (?username: String?, ?password: String?) -> String
+    def logout_user: () -> untyped
+    def get_user_by_name: (String username) -> User
+    def update_user: (String username, User body) -> untyped
+    def delete_user: (String username) -> untyped
+  end
+end

@@ -1,0 +1,367 @@
+# frozen_string_literal: true
+
+require "yaml"
+require "json"
+require_relative "runtime"
+
+module OpenAPI
+  # Turns an OpenAPI document into three files: value types, a client, and RBS.
+  #
+  # The guiding rule is that anything it cannot translate faithfully becomes a
+  # loud refusal rather than plausible-looking code.
+  class Emitter
+    Refusal = Struct.new(:operation, :reason)
+
+    SCALARS = {
+      %w[string date-time] => "Time",
+      %w[string date] => "Date",
+      %w[string binary] => "String",
+      %w[string] => "String",
+      %w[integer] => "Integer",
+      %w[number] => "Float",
+      %w[boolean] => ":bool"
+    }.freeze
+
+    attr_reader :refusals, :notes
+
+    def initialize(path, namespace:)
+      @spec = path.end_with?(".json") ? JSON.parse(File.read(path)) : YAML.load_file(path)
+      @namespace = namespace
+      @models = {}      # constant name => source for OpenAPI.model(...)
+      @deps = {}        # constant name => referenced constant names
+      @refusals = []
+      @notes = []
+    end
+
+    def emit(dir)
+      collect_models
+      operations = collect_operations
+      File.write(File.join(dir, "types.rb"), types_source)
+      File.write(File.join(dir, "client.rb"), client_source(operations))
+      File.write(File.join(dir, "#{OpenAPI.snake(@namespace)}.rbs"), rbs_source(operations))
+      operations
+    end
+
+    private
+
+    def resolve(node)
+      return node unless node.is_a?(Hash) && node["$ref"]
+
+      node["$ref"].delete_prefix("#/").split("/").reduce(@spec) { |doc, key| doc.fetch(key) }
+    end
+
+    def const_for(ref) = ref.split("/").last.gsub(/[^a-zA-Z0-9]/, "")
+
+    # --- schemas ------------------------------------------------------------
+
+    def collect_models
+      (@spec.dig("components", "schemas") || {}).each_key do |name|
+        define_model(const_for(name), @spec["components"]["schemas"][name])
+      end
+    end
+
+    def define_model(const, schema)
+      schema = merge_all_of(schema)
+      properties = schema["properties"] || {}
+      required = schema["required"] || []
+      deps = []
+
+      fields = properties.map do |json_name, property|
+        field = OpenAPI.snake(json_name)
+        type = type_for(property, "#{const}.#{field}", deps)
+        [field, json_name, type]
+      end
+
+      from = fields.filter_map { |field, json, _| "#{field}: #{json.inspect}" if OpenAPI.camelize(field) != json }
+      args = fields.map { |field, _, type| "#{field}: #{type}" }
+      args << "required: %i[#{fields.filter_map { |f, j, _| f if required.include?(j) }.join(" ")}]" if required.any?
+      args << "from: { #{from.join(", ")} }" if from.any?
+
+      @models[const] = args
+      @deps[const] = deps.uniq - [const]
+    end
+
+    def merge_all_of(schema)
+      return schema unless schema["allOf"]
+
+      schema["allOf"].map { merge_all_of(resolve(_1)) }.reduce(schema.except("allOf")) do |acc, part|
+        acc.merge(part) do |key, a, b|
+          case key
+          when "properties" then a.merge(b)
+          when "required" then a | b
+          else b
+          end
+        end
+      end
+    end
+
+    # Returns Ruby source for a type, recording model dependencies as it goes.
+    def type_for(schema, context, deps)
+      return ":any" if schema.nil? || schema.empty?
+
+      if (ref = schema["$ref"])
+        const = const_for(ref)
+        deps << const
+        return const
+      end
+
+      schema = merge_all_of(schema) if schema["allOf"]
+
+      if schema["oneOf"] || schema["anyOf"]
+        @notes << "#{context}: oneOf/anyOf without a discriminator, typed as :any"
+        return ":any"
+      end
+
+      case schema["type"]
+      when "array"
+        "[#{type_for(schema["items"] || {}, "#{context}[]", deps)}]"
+      when "object", nil
+        if (additional = schema["additionalProperties"]).is_a?(Hash)
+          "{ String => #{type_for(additional, "#{context}{}", deps)} }"
+        elsif schema["properties"]
+          const = hoist(context, schema, deps)
+          const || ":any"
+        else
+          ":any"
+        end
+      else
+        SCALARS[[schema["type"], schema["format"]].compact] || SCALARS[[schema["type"]]] || ":any"
+      end
+    end
+
+    # An inline object gets its own type rather than degrading to a bare Hash.
+    def hoist(context, schema, deps)
+      const = context.split(/[.\[\]{}]/).reject(&:empty?).map { |part| OpenAPI.camelize(part).sub(/\A./, &:upcase) }.join
+      return nil if @models.key?(const)
+
+      define_model(const, schema)
+      deps << const
+      const
+    end
+
+    # --- operations ---------------------------------------------------------
+
+    def collect_operations
+      schemes = @spec.dig("components", "securitySchemes") || {}
+      @security = schemes.filter_map { |_, scheme| security_declaration(scheme) }.first
+      if @security.nil? && schemes.any?
+        @notes << "no supported security scheme (#{schemes.values.map { _1["type"] }.uniq.join(", ")}); " \
+                  "the client sends no credentials"
+      end
+
+      @spec["paths"].flat_map do |template, path_item|
+        path_item.slice("get", "put", "post", "delete", "patch", "head", "options").map do |verb, op|
+          build_operation(verb, template, op, path_item["parameters"] || [])
+        end
+      end
+    end
+
+    def security_declaration(scheme)
+      case scheme.values_at("type", "scheme", "in")
+      in ["http", "bearer", _] then ":bearer"
+      in ["http", "basic", _] then ":basic"
+      in ["apiKey", _, "header"] then "{ header: #{scheme["name"].inspect} }"
+      else nil
+      end
+    end
+
+    def build_operation(verb, template, op, inherited_params)
+      name = OpenAPI.snake(op["operationId"] || "#{verb}_#{template.gsub(/[^a-zA-Z0-9]+/, "_")}")
+      refuse = ->(reason) { @refusals << Refusal.new(name, reason); return { name:, unsupported: reason } }
+      deps = []
+
+      params = (inherited_params + (op["parameters"] || [])).map { resolve(_1) }
+      query, header, types = [], {}, {}
+
+      params.each do |param|
+        style = param["style"] || (param["in"] == "query" ? "form" : "simple")
+        explode = param.fetch("explode", style == "form")
+        types[param["name"]] = type_for(param["schema"] || {}, "#{name}_#{OpenAPI.snake(param["name"])}", deps)
+
+        case param["in"]
+        when "path"
+          return refuse.("path parameter #{param["name"]} uses style=#{style}") unless style == "simple"
+        when "query"
+          return refuse.("query parameter #{param["name"]} uses style=#{style}") unless style == "form"
+          return refuse.("query parameter #{param["name"]} needs explode=false") unless explode
+
+          query << "#{param["name"]}#{"!" if param["required"]}"
+        when "header"
+          header[param["name"]] = "#{OpenAPI.snake(param["name"])}#{"!" if param["required"]}"
+        else
+          return refuse.("#{param["in"]} parameters are not supported")
+        end
+      end
+
+      body = form = content_type = nil
+      if (request_body = resolve(op["requestBody"]))
+        content = request_body["content"] || {}
+        json = content.keys.find { _1.include?("json") }
+        binary = content.keys.find { _1 == "application/octet-stream" || content[_1].dig("schema", "format") == "binary" }
+
+        if json
+          body = type_for(content[json]["schema"], "#{name}_body", deps)
+        elsif content.key?("application/x-www-form-urlencoded")
+          form = type_for(content["application/x-www-form-urlencoded"]["schema"], "#{name}_body", deps)
+        elsif binary
+          body = ":binary"
+          content_type = binary
+        else
+          return refuse.("request body is #{content.keys.join(", ")}")
+        end
+      end
+
+      into, errors = nil, {}
+      (op["responses"] || {}).each do |status, response|
+        response = resolve(response)
+        content = response["content"] || {}
+        json = content.keys.find { _1.include?("json") }
+        schema = json && content[json]["schema"]
+
+        if status.to_i.between?(200, 299)
+          next unless schema
+
+          into ||= type_for(schema, "#{name}_result", deps)
+          @notes << "#{name}: response is #{content.keys.join(", ")}, only #{json} is decoded" if json.nil? && content.any?
+        elsif schema
+          errors[status == "default" ? ":default" : status] = type_for(schema, "#{name}_error", deps)
+        end
+      end
+
+      if into.nil? && (op["responses"] || {}).any? { |s, r| s.to_i.between?(200, 299) && (resolve(r)["content"] || {}).any? }
+        @notes << "#{name}: success response has no JSON representation, returns the raw body"
+      end
+
+      { name:, verb:, template:, query:, header:, types:, body:, form:, content_type:, into:, errors:,
+        security: (op["security"] == [] ? "false" : nil), summary: op["summary"], deps: }
+    end
+
+    # --- output -------------------------------------------------------------
+
+    def sorted_models
+      ordered, seen = [], {}
+      visit = lambda do |const|
+        return if seen[const]
+
+        seen[const] = :visiting
+        @deps.fetch(const, []).each { |dep| visit.(dep) unless seen[dep] == :visiting }
+        seen[const] = true
+        ordered << const
+      end
+      @models.each_key { visit.(_1) }
+      ordered
+    end
+
+    def types_source
+      lines = sorted_models.map do |const|
+        args = @models[const]
+        one_line = "  #{const} = OpenAPI.model(#{args.join(", ")})"
+        next one_line if one_line.length <= 110
+
+        "  #{const} = OpenAPI.model(\n    #{args.join(",\n    ")}\n  )"
+      end
+
+      <<~RUBY
+        # frozen_string_literal: true
+        # Generated from the OpenAPI document. Edits will be overwritten.
+
+        require "openapi/runtime"
+
+        module #{@namespace}
+        #{lines.join("\n")}
+        end
+      RUBY
+    end
+
+    def client_source(operations)
+      lines = operations.map do |op|
+        next "    unsupported :#{op[:name]}, #{op[:unsupported].inspect}" if op[:unsupported]
+
+        args = [":#{op[:name]}", op[:template].inspect]
+        args << "query: %i[#{op[:query].join(" ")}]" if op[:query].any?
+        args << "header: { #{op[:header].map { |json, ruby| "#{json.inspect} => :#{ruby}" }.join(", ")} }" if op[:header].any?
+        args << "body: #{op[:body]}" if op[:body]
+        args << "form: #{op[:form]}" if op[:form]
+        args << "content_type: #{op[:content_type].inspect}" if op[:content_type]
+        args << "into: #{op[:into]}" if op[:into]
+        args << "errors: { #{op[:errors].map { |status, type| "#{status} => #{type}" }.join(", ")} }" if op[:errors].any?
+        args << "security: false" if op[:security]
+
+        "    #{op[:verb].ljust(6)} #{args.join(", ")}"
+      end
+
+      <<~RUBY
+        # frozen_string_literal: true
+        # Generated from the OpenAPI document. Edits will be overwritten.
+
+        require_relative "types"
+
+        module #{@namespace}
+          class Client < OpenAPI::Client
+            server #{(@spec.dig("servers", 0, "url") || "").inspect}
+        #{"    security(#{@security})\n" if @security}
+        #{lines.join("\n")}
+          end
+        end
+      RUBY
+    end
+
+    RBS_SCALARS = { ":bool" => "bool", ":any" => "untyped", ":binary" => "String" }.freeze
+
+    def rbs_type(source)
+      return "Array[#{rbs_type(source[1..-2].strip)}]" if source.start_with?("[")
+      return "Hash[String, #{rbs_type(source[/=>(.*)}/m, 1].strip)}]" if source.start_with?("{")
+
+      RBS_SCALARS[source] || source
+    end
+
+    def rbs_source(operations)
+      models = sorted_models.map do |const|
+        source = @models[const]
+        required = source.find { _1.start_with?("required:") }.to_s[/%i\[(.*)\]/, 1].to_s.split
+        readers = source.reject { _1.start_with?("required:", "from:") }.map do |arg|
+          field, type = arg.split(": ", 2)
+          "    attr_reader #{field}: #{rbs_type(type)}#{"?" unless required.include?(field)}"
+        end
+        <<~RBS.chomp
+            class #{const} < ::Data
+          #{readers.join("\n")}
+              def self.cast: (untyped, ?String) -> #{const}
+              def to_json_hash: () -> Hash[String, untyped]
+            end
+        RBS
+      end
+
+      methods = operations.map do |op|
+        next "    def #{op[:name]}: (*untyped) -> bot  # not generated: #{op[:unsupported]}" if op[:unsupported]
+
+        types = op[:types]
+        positional = op[:template].scan(/\{(\w+)\}/).flatten.map do |param|
+          "#{rbs_type(types[param] || ":any")} #{OpenAPI.snake(param)}"
+        end
+        positional << "#{rbs_type(op[:body] || op[:form])} body" if op[:body] || op[:form]
+
+        keyword = lambda do |json_name, declared|
+          required = declared.end_with?("!")
+          type = rbs_type(types[json_name] || ":any")
+          "#{"?" unless required}#{OpenAPI.snake(declared.delete_suffix("!"))}: #{type}#{"?" unless required}"
+        end
+        keywords = op[:query].map { keyword.(_1.delete_suffix("!"), _1) } +
+                   op[:header].map { |json, ruby| keyword.(json, ruby) }
+        "    def #{op[:name]}: (#{(positional + keywords).join(", ")}) -> #{op[:into] ? rbs_type(op[:into]) : "untyped"}"
+      end
+
+      <<~RBS
+        # Generated from the OpenAPI document. Edits will be overwritten.
+
+        module #{@namespace}
+        #{models.join("\n\n")}
+
+          class Client < OpenAPI::Client
+        #{methods.join("\n")}
+          end
+        end
+      RBS
+    end
+  end
+end

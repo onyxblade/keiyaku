@@ -1,0 +1,15 @@
+# frozen_string_literal: true
+# Generated from the OpenAPI document. Edits will be overwritten.
+
+require_relative "types"
+
+module Widgets
+  class Client < OpenAPI::Client
+    server "https://api.widgets.test/v1"
+    security(:bearer)
+
+    unsupported :list_widgets, "query parameter filter uses style=deepObject"
+    post   :create_widget, "/widgets", body: Widget, into: Widget, errors: { 422 => Problem }
+    get    :get_widget, "/widgets/{id}", into: Widget, errors: { :default => Problem }
+  end
+end

@@ -1,0 +1,27 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+$LOAD_PATH.unshift File.expand_path("../lib", __dir__)
+require "openapi/emitter"
+require "fileutils"
+
+spec, namespace, out = ARGV
+abort "usage: generate SPEC NAMESPACE OUT_DIR" unless out
+
+FileUtils.mkdir_p(out)
+emitter = OpenAPI::Emitter.new(spec, namespace:)
+operations = emitter.emit(out)
+
+built = operations.count { !_1[:unsupported] }
+puts "#{built}/#{operations.size} operations, #{Dir[File.join(out, "*")].size} files"
+
+unless emitter.notes.empty?
+  puts "\nnotes:"
+  emitter.notes.uniq.each { puts "  - #{_1}" }
+end
+
+unless emitter.refusals.empty?
+  puts "\nrefused to generate #{emitter.refusals.size} operation(s):"
+  emitter.refusals.each { puts "  - #{_1.operation}: #{_1.reason}" }
+  puts "\nCalling one raises OpenAPI::Unsupported. Write those by hand."
+end

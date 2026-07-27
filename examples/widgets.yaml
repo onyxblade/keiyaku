@@ -1,0 +1,71 @@
+openapi: 3.1.0
+info:
+  title: Widgets
+  version: "1.0"
+servers:
+  - url: https://api.widgets.test/v1
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    Widget:
+      type: object
+      required: [id, created_at]
+      properties:
+        id: { type: integer }
+        created_at: { type: string, format: date-time }
+        labels: { type: object, additionalProperties: { type: string } }
+        retired: { type: boolean }
+    Problem:
+      type: object
+      required: [detail]
+      properties:
+        detail: { type: string }
+        trace_id: { type: string }
+paths:
+  /widgets:
+    get:
+      operationId: listWidgets
+      parameters:
+        - { name: filter, in: query, style: deepObject, schema: { type: object } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: "#/components/schemas/Widget" } }
+    post:
+      operationId: createWidget
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Widget" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Widget" }
+        "422":
+          description: invalid
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
+  /widgets/{id}:
+    get:
+      operationId: getWidget
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: integer } }
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Widget" }
+        default:
+          description: error
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
