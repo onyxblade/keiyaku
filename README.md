@@ -216,7 +216,12 @@ method:
 def call(verb, uri, headers, body) = [status, headers, body]
 ```
 
-Two are shipped without being loaded, or depended on:
+Each lives in a file of its own, the stdlib one included: the runtime holds the
+seam and none of the transport, and `keiyaku/adapters/net_http` is autoloaded by
+the client that was given no adapter, so an application on another stack never
+loads `net/http` at all.
+
+Two more are shipped without being loaded, or depended on:
 
 ```ruby
 require "keiyaku/adapters/faraday"

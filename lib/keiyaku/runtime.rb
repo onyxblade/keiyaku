@@ -1,11 +1,12 @@
 # frozen_string_literal: true
 
-require "net/http"
 require "json"
 require "uri"
 require "time"
 require "date"
 require "securerandom"
+require "socket"
+require "timeout"
 require_relative "version"
 
 # A runtime for generated OpenAPI clients.
@@ -51,7 +52,8 @@ module Keiyaku
   # What a transport failure looks like from the stdlib, which an adapter an
   # application wrote itself is likely to let through as-is. Net::OpenTimeout
   # and Net::ReadTimeout are Timeout::Error; Errno::ECONNREFUSED and the rest
-  # of Errno are SystemCallError.
+  # of Errno are SystemCallError. socket and timeout are required above for
+  # these two names, which is all the runtime itself wants from a transport.
   TRANSPORT_ERRORS = [IOError, SystemCallError, SocketError, Timeout::Error].freeze
 
   # The words Ruby will not read as a name. Lives here rather than with the
@@ -469,27 +471,13 @@ module Keiyaku
   #
   # This is the only part of the runtime a host application might want to
   # replace, which is why it is one method with no state.
-  class NetHTTPAdapter
-    def initialize(timeout: 15)
-      @open_timeout, @read_timeout = Keiyaku.timeouts(timeout)
-    end
-
-    def call(verb, uri, headers, body)
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = uri.scheme == "https"
-      http.open_timeout = @open_timeout
-      http.read_timeout = @read_timeout
-
-      request = Net::HTTP.const_get(verb.to_s.capitalize).new(uri)
-      headers.each { |k, v| request[k] = v }
-      request.body = body if body
-
-      response = http.request(request)
-      [response.code.to_i, response.to_hash.transform_values(&:first), response.body]
-    rescue *TRANSPORT_ERRORS => e
-      raise ConnectionError, "#{verb.to_s.upcase} #{uri}: #{e.message}"
-    end
-  end
+  #
+  # Every adapter is a file of its own, this one included: the runtime says
+  # what the seam is and holds none of it. The stdlib one is autoloaded rather
+  # than opted into like faraday's and http.rb's, because it is the default a
+  # client builds when it was given no adapter — an application that named its
+  # own should not have to load net/http to find that out.
+  autoload :NetHTTPAdapter, File.expand_path("adapters/net_http", __dir__)
 
   # Base class for generated clients. The generated subclass contains one
   # declaration per operation and nothing else.

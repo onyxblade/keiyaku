@@ -136,6 +136,8 @@ module Keiyaku
     def call: (Symbol verb, untyped uri, Hash[String, String] headers, String? body) -> [Integer, Hash[String, untyped], String?]
   end
 
+  # Autoloaded from `keiyaku/adapters/net_http` by the client that was given no
+  # adapter, so nothing has to require it to get the default.
   class NetHTTPAdapter
     include _Adapter
 
