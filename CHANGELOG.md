@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 — unreleased
+## 0.1.0 — 2026-07-28
 
 First cut. Generates a client, its value types and an RBS file from an OpenAPI
 3.0 or 3.1 document.
