@@ -135,6 +135,13 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
   carries — for an object. It used to be whatever `#to_s` made of the value,
   so a list reached the server as a string with brackets and a space in it and
   an object as a Ruby Hash literal, neither of which anything reads back
+- a request with no body reaches the server without a Content-Type on every
+  net/http there is. Net::HTTP gives a POST that was handed none an empty body
+  of its own, and net/http before 0.5 labels that empty body
+  `application/x-www-form-urlencoded` — so an optional body left out went out
+  under a media type this client never chose, on the Rubies whose standard
+  library is that old. The adapter says there is no body rather than leaving
+  one to be invented, and sends the length as the zero it is
 - a path parameter is percent-encoded the way RFC 6570 says its style is: down
   to the unreserved characters, and inside the separators rather than over
   them. The whole segment used to go through `URI.encode_www_form_component`,

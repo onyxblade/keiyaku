@@ -26,7 +26,22 @@ module Keiyaku
 
       request = Net::HTTP.const_get(verb.to_s.capitalize).new(uri)
       headers.each { |k, v| request[k] = v }
-      request.body = body if body
+
+      if body
+        request.body = body
+      elsif request.request_body_permitted?
+        # No body is no body: an optional one left out means no bytes and no
+        # Content-Type claiming there are some, which is the runtime's promise
+        # and not this file's to give away. Net::HTTP hands a POST that was
+        # given none an empty body of its own, and net/http before 0.5 labels
+        # that application/x-www-form-urlencoded — a media type this client
+        # never chose, on a request that carries nothing. Saying so here is
+        # one method rather than a header to unpick later, and the length
+        # still goes out as the zero it is, since a POST without one is what
+        # some servers answer with 411.
+        request.content_length = 0
+        def request.request_body_permitted? = false
+      end
 
       response = http.request(request)
       [response.code.to_i, response.to_hash.transform_values(&:first), response.body]
