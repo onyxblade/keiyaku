@@ -116,10 +116,13 @@ RSpec.describe "Keiyaku.model" do
       expect(message.cast(wire)["nope"]).to be_nil
     end
 
+    # The hashes are inspected rather than written out: Ruby 3.4 put spaces
+    # around the `=>` and earlier versions do not, and neither spelling is what
+    # this example is about.
     it "prints what it is carrying, and only when it is carrying something" do
-      expect(message.cast(wire).inspect).to include(%({"please_ack" => ["receipt"]}))
+      expect(message.cast(wire).inspect).to include({ "please_ack" => ["receipt"] }.inspect)
       expect(message.cast(wire.except("please_ack")).inspect)
-        .to eq %(#<Keiyaku::Model id="abc", body={"content" => "hi"}>)
+        .to eq %(#<Keiyaku::Model id="abc", body=#{{ "content" => "hi" }.inspect}>)
     end
 
     it "casts the values when the document declared a type for them" do
