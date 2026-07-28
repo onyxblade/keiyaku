@@ -84,6 +84,10 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
 - a `Link` target that points at another origin raises instead of being
   followed with the client's credentials on it, and a relative one is resolved
   against the request that carried it rather than parsed as if it were whole
+- which query and header parameters are required is declared once, as
+  `required: %i[status]`, rather than marked with a bang on the end of each
+  name. A document may name a parameter `notify!` itself, and the mark made
+  that one required and sent it as `notify`
 - `servers` on a path item or an operation is answered rather than ignored: it
   is refused unless the client's own server is among the ones it lists, since
   generating it would send that operation, and its credentials, to a host the

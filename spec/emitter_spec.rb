@@ -878,6 +878,28 @@ RSpec.describe Keiyaku::Emitter do
     end
   end
 
+  # Which parameters are required is said in one place, so a name is only ever
+  # a name: a document is entitled to call one `notify!`, and marking
+  # requiredness on the end of it would have made that one required and sent
+  # it as `notify`.
+  describe "a parameter whose name ends in a bang" do
+    after { Object.send(:remove_const, :Banged) if Object.const_defined?(:Banged) }
+
+    it "is as optional as the document said, under the name it gave" do
+      generate(document(<<~YAML), namespace: "Banged") do |emitter, dir|
+        operationId: listThings
+        parameters:
+          - { name: "notify!", in: query, schema: { type: string } }
+        responses: { "200": { description: ok } }
+      YAML
+        expect(emitter.refusals).to be_empty
+        load File.join(dir, "client.rb")
+        expect(Banged::Client.operations[:list_things][:query]).to eq [["notify!", false]]
+        expect(Banged::Client.instance_method(:list_things).parameters).to eq [%i[key notify]]
+      end
+    end
+  end
+
   # `def find(until: nil)` is a method Ruby will define; `def find(until)` is
   # a file it will not read. So the one that can keep the document's name does.
   describe "a parameter named for a Ruby keyword" do
@@ -893,7 +915,7 @@ RSpec.describe Keiyaku::Emitter do
     it "keeps the name when it is a query parameter" do
       generate(with_keyword("query")) do |emitter, dir|
         expect(emitter.refusals).to be_empty
-        expect(File.read(File.join(dir, "client.rb"))).to include("query: %i[until!]")
+        expect(File.read(File.join(dir, "client.rb"))).to include("query: %i[until], required: %i[until]")
         expect(File.read(File.join(dir, "refused.rbs"))).to include("def list_things: (until: String) ->")
       end
     end
@@ -901,7 +923,7 @@ RSpec.describe Keiyaku::Emitter do
     it "keeps it when it is a header parameter" do
       generate(with_keyword("header")) do |emitter, dir|
         expect(emitter.refusals).to be_empty
-        expect(File.read(File.join(dir, "client.rb"))).to include(%(header: { "until" => :until! }))
+        expect(File.read(File.join(dir, "client.rb"))).to include(%(header: { "until" => :until }, required: %i[until]))
       end
     end
 

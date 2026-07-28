@@ -10,8 +10,8 @@ module Petstore
 
     put    :update_pet, "/pet", body: Pet, into: Pet, security: :petstore_auth
     post   :add_pet, "/pet", body: Pet, into: Pet, security: :petstore_auth
-    get    :find_pets_by_status, "/pet/findByStatus", query: %i[status!], into: [Pet], security: :petstore_auth
-    get    :find_pets_by_tags, "/pet/findByTags", query: %i[tags!], into: [Pet], security: :petstore_auth
+    get    :find_pets_by_status, "/pet/findByStatus", query: %i[status], required: %i[status], into: [Pet], security: :petstore_auth
+    get    :find_pets_by_tags, "/pet/findByTags", query: %i[tags], required: %i[tags], into: [Pet], security: :petstore_auth
     get    :get_pet_by_id, "/pet/{petId}", into: Pet, security: [[:api_key], [:petstore_auth]]
     post   :update_pet_with_form, "/pet/{petId}", query: %i[name status], into: Pet, security: :petstore_auth
     delete :delete_pet, "/pet/{petId}", header: { "api_key" => :api_key }, security: :petstore_auth

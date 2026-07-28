@@ -573,7 +573,7 @@ module Keiyaku
 
       deps = []
       params = ((path_item["parameters"] || []) + (op["parameters"] || [])).map { resolve(_1) }
-      query, deep_object, header, types = [], [], {}, {}
+      query, deep_object, header, required, types = [], [], {}, [], {}
 
       params.each do |param|
         style = param["style"] || (param["in"] == "query" ? "form" : "simple")
@@ -592,12 +592,18 @@ module Keiyaku
             raise Impossible, "query parameter #{param["name"]} uses explode=false" unless explode
           end
 
-          query << "#{param["name"]}#{"!" if param["required"]}"
+          query << param["name"]
         when "header"
-          header[param["name"]] = "#{Names.parameter(param["name"])}#{"!" if param["required"]}"
+          header[param["name"]] = Names.parameter(param["name"])
         else
           raise Impossible, "#{param["in"]} parameters are not supported"
         end
+
+        # A path parameter is positional and required by being one, so this is
+        # only about the keywords. The name is the document's, which is the
+        # one that appears in `query:` and in `header:` both — the Ruby name a
+        # header arrives under is this generator's, and requiredness is not.
+        required << param["name"] if param["required"] && param["in"] != "path"
       end
 
       hint = op["x-keiyaku-paginate"]
@@ -640,7 +646,7 @@ module Keiyaku
       # one keyword written twice, and refuse to parse the file.
       arguments = template.scan(/\{(\w+)\}/).flatten.map { Names.parameter(_1, positional: true) }
       arguments << "body" if body || form || multipart
-      arguments += query.map { Names.parameter(_1.delete_suffix("!")) } + header.values.map { _1.delete_suffix("!") }
+      arguments += query.map { Names.parameter(_1) } + header.values
       if (duplicate = arguments.tally.find { |_, count| count > 1 })
         raise Impossible, "two of its parameters are both called #{duplicate.first}"
       end
@@ -648,8 +654,8 @@ module Keiyaku
       success, errors = responses(op, name, deps)
       into = success.empty? ? nil : success
 
-      { name:, verb:, template:, query:, deep_object:, header:, types:, body:, form:, multipart:, content_type:, into:,
-        errors:, hint:, paginate: (hint && hash_source(hint)),
+      { name:, verb:, template:, query:, deep_object:, header:, required:, types:, body:, form:, multipart:,
+        content_type:, into:, errors:, hint:, paginate: (hint && hash_source(hint)),
         security: @security.source_for(name, op), summary: op["summary"], deps: }
     end
 
@@ -722,9 +728,8 @@ module Keiyaku
     # A hint that names a parameter the operation does not have would produce a
     # client that pages forever, so it is refused like any other construct that
     # cannot be honoured.
-    def pagination_problem(hint, query)
+    def pagination_problem(hint, names)
       by = hint["by"].to_s
-      names = query.map { _1.delete_suffix("!") }
 
       if !PAGINATION.include?(by)
         "unknown strategy #{hint["by"].inspect}, expected one of #{PAGINATION.join(", ")}"
@@ -884,6 +889,7 @@ module Keiyaku
         args << "query: #{symbol_list(op[:query])}" if op[:query].any?
         args << "deep_object: #{string_list(op[:deep_object])}" if op[:deep_object].any?
         args << "header: { #{op[:header].map { |json, ruby| "#{json.inspect} => :#{ruby}" }.join(", ")} }" if op[:header].any?
+        args << "required: #{symbol_list(op[:required])}" if op[:required].any?
         args << "body: #{op[:body]}" if op[:body]
         args << "form: #{op[:form]}" if op[:form]
         args << "multipart: #{op[:multipart]}" if op[:multipart]

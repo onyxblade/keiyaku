@@ -204,12 +204,12 @@ module Keiyaku
         payload = op[:body] || op[:form] || op[:multipart]
         positional << "#{type_for(payload)} body" if payload
 
-        keyword = lambda do |json_name, declared|
-          required = declared.end_with?("!")
+        keyword = lambda do |json_name, ruby_name|
+          required = op[:required].include?(json_name)
           type = type_for(types[json_name] || ":any")
-          "#{"?" unless required}#{Keiyaku.snake(declared.delete_suffix("!"))}: #{type}#{"?" unless required}"
+          "#{"?" unless required}#{Keiyaku.snake(ruby_name)}: #{type}#{"?" unless required}"
         end
-        keywords = op[:query].map { keyword.(_1.delete_suffix("!"), _1) } +
+        keywords = op[:query].map { keyword.(_1, _1) } +
                    op[:header].map { |json, ruby| keyword.(json, ruby) }
         arguments = (positional + keywords).join(", ")
         signature = "    def #{op[:name]}: (#{arguments}) -> #{op[:into] ? return_type(into_type(op[:into])) : "untyped"}"

@@ -26,7 +26,7 @@ module Petstore
 
     put    :update_pet, "/pet", body: Pet, into: Pet, security: :petstore_auth
     post   :add_pet, "/pet", body: Pet, into: Pet, security: :petstore_auth
-    get    :find_pets_by_status, "/pet/findByStatus", query: %i[status!], into: [Pet], security: :petstore_auth
+    get    :find_pets_by_status, "/pet/findByStatus", query: %i[status], required: %i[status], into: [Pet], security: :petstore_auth
     get    :get_pet_by_id, "/pet/{petId}", into: Pet, security: [[:api_key], [:petstore_auth]]
     delete :delete_pet, "/pet/{petId}", header: { "api_key" => :api_key }, security: :petstore_auth
     get    :get_inventory, "/store/inventory", into: { String => Integer }, security: :api_key
@@ -104,8 +104,12 @@ the generated RBS being subtly unresolvable.
 
 The DSL builds real methods with real arity — `get :get_pet_by_id,
 "/pet/{petId}"` defines `get_pet_by_id(pet_id)`, and calling it wrong raises
-`ArgumentError` at the call, not a confusing failure inside the client. A `!`
-suffix marks a required parameter: `query: %i[status! limit]`.
+`ArgumentError` at the call, not a confusing failure inside the client.
+`required:` says which query and header parameters a caller has to pass, by
+the name the document gave them: `query: %i[status limit], required: %i[status]`.
+It is said in one place rather than marked on each name, because a name is the
+document's — one called `notify!` is a parameter called `notify!`, not an
+optional one wearing the mark for a required one.
 
 ## Unions, uploads, pages
 

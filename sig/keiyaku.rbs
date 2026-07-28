@@ -184,6 +184,7 @@ module Keiyaku
     def self.operation: (
       Symbol verb, Symbol name, String template,
       ?query: Array[Symbol], ?deep_object: Array[String], ?header: Hash[String, Symbol],
+      ?required: Array[Symbol | String],
       ?body: untyped, ?form: untyped, ?multipart: untyped, ?content_type: String?,
       ?into: untyped, ?errors: Hash[untyped, untyped], ?security: untyped,
       ?paginate: Hash[Symbol, untyped]?

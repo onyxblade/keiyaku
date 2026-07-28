@@ -535,8 +535,10 @@ module Keiyaku
 
       # Declare one operation, and define a real method for it.
       #
-      # Required query/header parameters are marked with a trailing bang:
-      #   get :find, "/pets", query: %i[status! limit]
+      # `required:` names the query and header parameters a caller has to
+      # pass, by the name the document gave them — which for a header is the
+      # name on the wire rather than the Ruby one it arrives under:
+      #   get :find, "/pets", query: %i[status limit], required: %i[status]
       #
       # `deep_object:` names the query parameters the document gave
       # `style: deepObject`, which go out spelled a key at a time:
@@ -552,12 +554,22 @@ module Keiyaku
       #
       # `items:` names the field holding the page's contents when the response
       # is an envelope; without it the response is the array itself.
-      def operation(verb, name, template, query: [], deep_object: [], header: {}, body: nil, form: nil,
+      def operation(verb, name, template, query: [], deep_object: [], header: {}, required: [], body: nil, form: nil,
                     multipart: nil, content_type: nil, into: nil, errors: {},
                     security: :inherit, paginate: nil)
         path_params = template.scan(/\{(\w+)\}/).flatten
-        query_params = query.map { [_1.to_s.delete_suffix("!"), _1.to_s.end_with?("!")] }
-        header_params = header.map { |json, ruby| [json.to_s, ruby.to_s.delete_suffix("!"), ruby.to_s.end_with?("!")] }
+        # A name in `required:` that belongs to no parameter of this operation
+        # would quietly leave a required one optional, which is a 400 at the
+        # first call rather than an ArgumentError at the first load.
+        needed = required.map(&:to_s)
+        declared = query.map(&:to_s) + header.keys.map(&:to_s)
+        unless (unknown = required.reject { declared.include?(_1.to_s) }).empty?
+          raise ArgumentError, "#{self}##{name}: required: names #{unknown.map(&:inspect).join(", ")}, " \
+                               "which is not a query or header parameter of this operation"
+        end
+
+        query_params = query.map { [_1.to_s, needed.include?(_1.to_s)] }
+        header_params = header.map { |json, ruby| [json.to_s, ruby.to_s, needed.include?(json.to_s)] }
 
         operations[name] = {
           verb:, template:, body:, form:, multipart:, content_type:, into:, errors:, paginate:,
