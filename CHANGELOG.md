@@ -81,3 +81,6 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
   `per:` is a refusal rather than a walk that reads its page size off nothing
 - `--module` has to be one Ruby constant, said against the flag rather than
   found later in a file that will not load
+- a `Link` target that points at another origin raises instead of being
+  followed with the client's credentials on it, and a relative one is resolved
+  against the request that carried it rather than parsed as if it were whole

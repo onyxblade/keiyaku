@@ -220,8 +220,14 @@ Four strategies: `offset` and `page` advance a parameter until a page comes
 back short, `cursor` reads the next cursor out of the response (`next:`, plus
 `items:` when the response is an envelope), and `link` follows an RFC 8288
 `Link: <...>; rel="next"` header. A hint naming a parameter the operation does
-not have is refused rather than ignored, since what it would otherwise produce
-is a client that pages forever.
+not have — or a key the extension does not have — is refused rather than
+ignored, since what it would otherwise produce is a client that pages forever.
+
+A `Link` target may be relative, and is resolved against the request that
+carried it. One pointing at another origin raises: the credentials are the
+client's and the URL is the server's, so following it would send an
+`Authorization` header, or an API key in a query, to a host the document never
+named.
 
 ## Transport
 

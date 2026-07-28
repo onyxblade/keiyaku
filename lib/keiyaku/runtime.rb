@@ -676,13 +676,14 @@ module Keiyaku
       credentials = []
       __authenticate(name, op, headers, credentials)
 
+      uri = URI.parse(@base_url + op[:template].gsub(/\{(\w+)\}/) { Serialize.path(path.fetch($1)) })
+
       if url
-        uri = URI.parse(url)
+        uri = __follow(name, uri, url)
         # A URL the server handed back carries the query it wants; the
         # credentials are ours, and still have to be on it.
         uri.query = [uri.query, URI.encode_www_form(credentials)].compact.reject(&:empty?).join("&") if credentials.any?
       else
-        uri = URI.parse(@base_url + op[:template].gsub(/\{(\w+)\}/) { Serialize.path(path.fetch($1)) })
         pairs = Serialize.query(query.reject { |_, v| UNSET.equal?(v) }, deep: op[:deep_object]) + credentials
         uri.query = URI.encode_www_form(pairs) unless pairs.empty?
       end
@@ -769,6 +770,23 @@ module Keiyaku
       return page[name.to_s] || page[Keiyaku.snake(name)] if page.is_a?(Hash)
 
       page.public_send(Keiyaku.snake(name))
+    end
+
+    # Where a `rel=next` points, which is the one URL in a call this client
+    # did not build. RFC 8288 lets the target be relative, and relative to the
+    # URI of the request whose header carried it.
+    #
+    # The credentials on that request are ours and the target is the server's,
+    # so a `next` pointing at another host is how an API's own answer walks an
+    # Authorization header — or an API key, which goes in the query — off to
+    # somewhere that was never documented to receive it. It is not followed
+    # without them either: what came back would not be this operation's answer.
+    def __follow(name, from, url)
+      target = URI.join(from, url)
+      return target if [target.scheme, target.host, target.port] == [from.scheme, from.host, from.port]
+
+      raise Error, "#{name}: the next page is #{target.origin}, and this client is #{from.origin}; " \
+                   "following it would send the credentials somewhere the document did not name"
     end
 
     def __next_link(header)

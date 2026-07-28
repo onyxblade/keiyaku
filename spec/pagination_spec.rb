@@ -58,6 +58,28 @@ RSpec.describe "pagination" do
   end
 
   describe "by Link header" do
+    # The one URL in a call this client does not build, which is why the two
+    # examples below answer from a script rather than from the test server:
+    # what a `next` can say is the point, and a server that says it honestly
+    # cannot say the rest.
+    def scripted(*pages)
+      Class.new do
+        define_method(:initialize) { @pages = pages }
+        def seen = @seen ||= []
+
+        def call(_verb, uri, headers, _body)
+          seen << [uri.to_s, headers]
+          @pages.shift or raise "the client asked for a page after the last one: #{uri}"
+        end
+      end.new
+    end
+
+    def page(items, link: nil)
+      headers = { "content-type" => "application/json" }
+      headers["link"] = %(<#{link}>; rel="next") if link
+      [200, headers, JSON.generate(items.map { TestServer::WIDGET.(_1) })]
+    end
+
     it "follows rel=next until there is none" do
       expect(widgets.widget_feed_each.map(&:id)).to eq [1, 2]
     end
@@ -65,6 +87,28 @@ RSpec.describe "pagination" do
     it "follows the URL the server gave rather than building one" do
       widgets.widget_feed_each.to_a
       expect(sent_all(2).map(&:query)).to eq [{}, { "page" => "2" }]
+    end
+
+    # RFC 8288's target may be relative, and it is relative to the URI of the
+    # request whose header carried it.
+    it "resolves a relative target against the request that carried it" do
+      adapter = scripted(page([1], link: "?page=2"), page([2]))
+
+      expect(widgets(adapter:).widget_feed_each.map(&:id)).to eq [1, 2]
+      expect(adapter.seen.map(&:first))
+        .to eq [TestServer.url("/v1/widgets/feed"), TestServer.url("/v1/widgets/feed?page=2")]
+    end
+
+    # The credentials belong to the client and the URL belongs to the server,
+    # so a `next` somewhere else is an answer that walks the Authorization
+    # header off to a host the document never named.
+    it "refuses a target on another origin rather than sending the credentials there" do
+      adapter = scripted(page([1], link: "https://other-origin.test/v1/widgets/feed?page=2"))
+
+      expect { widgets(adapter:).widget_feed_each.to_a }
+        .to raise_error(Keiyaku::Error, %r{https://other-origin.test.*this client is http://127.0.0.1})
+      expect(adapter.seen.map(&:first)).to eq [TestServer.url("/v1/widgets/feed")]
+      expect(adapter.seen.first.last).to include("Authorization" => "Bearer t0ken")
     end
   end
 
