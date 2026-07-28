@@ -1,99 +1,103 @@
 # frozen_string_literal: true
 
-# examples/sidecar.json is not written by hand and not written for this: it is
-# what `@fastify/swagger` prints for a running service, checked in exactly as
-# the service emits it. Everything the generator has to cope with in a document
-# nobody wrote is true of it at once — no operationId, no components, no
-# servers — and the two hand-written examples cannot stand in for that, because
-# they were written by somebody who knew what the generator does with them.
+# examples/sidecar.json is the same service as examples/sidecar-inline.json,
+# after it gave its shared shapes a `$id`. Nothing about the routes changed —
+# ten operations, no operationId, no servers, still printed by the server rather
+# than written for this — so what the two documents differ in is only whether
+# the shapes they repeat are named, which makes this the one pair here that says
+# what naming a schema is worth.
 #
-# The assertions here go through Client.operations rather than through type
-# names, since the names of deduplicated models are not settled.
-RSpec.describe "a document a server wrote about itself" do
+# It is worth 71 models against 32: the shape a DIDComm message has is written
+# once and every operation refers to it, where before each of the four carried
+# its own copy and got its own type.
+RSpec.describe "a document that names its shared shapes" do
   subject(:operations) { Sidecar::Client.operations }
 
-  # The verb and the path are the whole of what there is to name a method with.
-  it "names its methods for the routes they call" do
-    expect(operations.keys).to include(:post_didcomm_pack_encrypted, :get_health, :post_did_peer_4_create)
+  # Where the document names a type, the name is its own — not the position the
+  # generator reached it from, which is all it has to go on otherwise.
+  it "takes its type names from the document" do
+    expect(Sidecar.constants).to include(
+      :Message, :Attachment, :DIDDoc, :VerificationMethod, :Service, :Secret,
+      :ErrorResponse, :DIDResolutionResult
+    )
   end
 
-  it "keeps a path parameter from colliding with the collection it hangs off" do
-    expect(operations.keys.grep(/resolve/)).to contain_exactly(:post_did_resolve, :post_did_peer_4_resolve_short)
+  # The whole point of the change in the service: one message type, so a caller
+  # can build a message and pack it three ways. Four copies of the schema were
+  # four types, and no value could be passed to more than one of them.
+  it "gives every operation that takes a message the same message type" do
+    bodies = %i[
+      post_didcomm_pack_encrypted post_didcomm_pack_signed post_didcomm_pack_plaintext
+    ].map { operations[_1][:body].types[:message] }
+
+    expect(bodies.uniq).to eq [Sidecar::Message]
+    # And what comes back out of an envelope is the same type as what went in.
+    expect(operations[:post_didcomm_unpack][:into].types[:message]).to equal Sidecar::Message
   end
 
-  # With no components, the same schema is written out again under every
-  # operation that uses it — the error body appears in eight places, and eight
-  # of these routes take a structurally identical request. Each copy is named
-  # after the operation it was written under, so the names are the settled part
-  # rather than the unsettled one: no operation is handed a type called after a
-  # different operation, which is the only name the generator could have picked
-  # and the only one that records where it walked rather than what it read.
-  it "names every type after the operation it was written under" do
-    operations.each do |name, op|
-      expected = "Sidecar::#{name.to_s.split("_").map(&:capitalize).join}"
-      types = { "Body" => op[:body], "Result" => op[:into] }
-        .merge(op[:errors].transform_keys { "Error" })
+  it "gives every operation that takes a pinned document or a secret the same types" do
+    body = operations[:post_didcomm_pack_encrypted][:body]
 
-      types.each do |suffix, type|
-        next unless type.is_a?(Class)
-
-        expect(type.name).to eq "#{expected}#{suffix}"
-      end
-    end
+    expect(body.types[:did_docs]).to eq [Sidecar::DIDDoc]
+    expect(body.types[:secrets]).to eq [Sidecar::Secret]
+    # The resolver hands back the same DIDDoc the pack endpoints accept, which
+    # is the pair of operations a caller actually uses together.
+    expect(operations[:post_did_didcomm_doc][:into].types[:did_doc]).to equal Sidecar::DIDDoc
   end
 
-  # The worst of what naming a type by structural match produced: this
-  # operation's 400 body happens to have the same shape as its 200 body, so the
-  # error was typed as the result, and a caller rescuing it got a value whose
-  # class said it had succeeded.
-  it "does not hand an operation its result type as its error type" do
+  # Six operations describe their 400 with the same named schema, so there is
+  # one class to rescue rather than one per operation.
+  it "gives every operation that fails the same error type" do
+    errors = operations.values.flat_map { _1[:errors].values }
+
+    expect(errors.uniq).to contain_exactly(Sidecar::ErrorResponse, Sidecar::DIDResolutionResult)
+  end
+
+  # sidecar_inline_spec.rb asserts the opposite of this, and both are right.
+  # There, /did/resolve's 400 is a schema of its own that happens to have the
+  # shape of its 200, and matching the two up by structure would hand a caller
+  # rescuing the error a type whose name said the call had succeeded. Here the
+  # document says outright that both are DIDResolutionResult — the W3C result
+  # carries its own error field — so one type is what it describes, and the name
+  # claims nothing either way.
+  it "lets an operation say its error is its result, where the document says so" do
     op = operations[:post_did_resolve]
 
-    expect(op[:errors].values.uniq).to eq [Sidecar::PostDidResolveError]
-    expect(op[:errors].values).not_to include op[:into]
+    expect(op[:into]).to equal Sidecar::DIDResolutionResult
+    expect(op[:errors]).to eq(400 => Sidecar::DIDResolutionResult, 404 => Sidecar::DIDResolutionResult)
   end
 
-  it "does not merge two schemas that only look alike" do
-    expect(operations[:post_didcomm_pack_signed][:into])
-      .not_to equal operations[:post_didcomm_pack_encrypted][:into]
+  # Naming the shared shapes does not change the rule for the rest: a schema the
+  # document still writes inline is named for where it was written, and one
+  # nested inside a named schema is named for that schema rather than for
+  # whichever operation reached it first.
+  it "still names by position everything the document left unnamed" do
+    expect(operations[:post_didcomm_pack_encrypted][:body].types[:options])
+      .to equal Sidecar::PostDidcommPackEncryptedBodyOptions
+    expect(Sidecar::DIDResolutionResult.types[:did_resolution_metadata])
+      .to equal Sidecar::DIDResolutionResultDidResolutionMetadata
   end
 
-  # A sidecar publishes no address, so the application has to supply one. The
-  # generator emits `server nil` rather than an empty string, and the error
-  # names the class instead of surfacing later from inside URI.
-  it "leaves the address to the application" do
-    expect(Sidecar::Client.server).to be_nil
-    expect { Sidecar::Client.new }.to raise_error(Keiyaku::Error, /has no server declared/)
-    expect(Sidecar::Client.new(base_url: "http://127.0.0.1:3100").base_url).to eq "http://127.0.0.1:3100"
-  end
-
-  # The constructs it would not translate faithfully. Each is a note rather
-  # than a refusal — the operation still works and the field is just :any —
-  # so what this pins is that the fields around them are unaffected.
+  # What it cannot translate is now said once per shape instead of once per
+  # copy, which is the same four notes the inline document spreads over
+  # thirteen.
   it "types what it cannot translate as :any, and only that" do
-    options = Sidecar::PostDidcommPackEncryptedBodyOptions
-    attachments = Sidecar::PostDidcommPackEncryptedBodyMessageAttachments
-
-    # An array of tuples. A tuple is fixed-length and heterogeneous, which one
-    # element type cannot describe, so the inner one degrades and the array
-    # around it does not.
-    expect(options.types[:forward_headers]).to eq [[:any]]
-    expect(options.types[:protect_sender]).to eq :bool
-
-    # anyOf with nothing to dispatch on.
-    expect(attachments.types[:data]).to eq :any
-    expect(attachments.types[:media_type]).to eq String
+    expect(Sidecar::Attachment.types[:data]).to eq :any
+    expect(Sidecar::Attachment.types[:media_type]).to eq String
+    expect(Sidecar::Service.types[:service_endpoint]).to eq :any
+    expect(Sidecar::Service.types[:id]).to eq String
+    expect(Sidecar::PostDidcommPackEncryptedBodyOptions.types[:forward_headers]).to eq [[:any]]
   end
 
-  # The property that named the bug this document found: a DIDComm message has
-  # one called `from`, which as a keyword argument would have taken the place
-  # of Keiyaku.model's own `from:` option and left the field out of the class.
+  # A DIDComm message has a property called `from`, which as a keyword argument
+  # would have taken the place of Keiyaku.model's own `from:` option.
   it "keeps a property named like one of the model's own options" do
-    message = Sidecar::PostDidcommPackEncryptedBodyMessage
-
-    expect(message.members).to include(:from, :to, :type, :body)
-    expect(message.types[:from]).to eq String
-    # Already snake_case in the document, so nothing is mapped to camelCase.
-    expect(message.json_names[:created_time]).to eq "created_time"
+    expect(Sidecar::Message.members).to include(:from, :to, :type, :body)
+    expect(Sidecar::Message.types[:from]).to eq String
+    # The service's own fields are camelCase and the convention maps them; the
+    # ones DIDComm itself spells snake_case are mapped back by name.
+    expect(Sidecar::Message.json_names[:created_time]).to eq "created_time"
+    expect(operations[:post_didcomm_pack_encrypted][:into].json_names[:packed_message])
+      .to eq "packedMessage"
   end
 end

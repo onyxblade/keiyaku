@@ -8,7 +8,8 @@ require "rspec/core/rake_task"
 EXAMPLES = {
   "examples/petstore.yaml" => "Petstore",
   "examples/widgets.yaml" => "Widgets",
-  "examples/sidecar.json" => "Sidecar"
+  "examples/sidecar.json" => "Sidecar",
+  "examples/sidecar-inline.json" => "SidecarInline"
 }.freeze
 
 def output_for(document) = document.sub(/\.\w+\z/, "")

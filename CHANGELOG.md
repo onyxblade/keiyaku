@@ -42,7 +42,6 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
   `from` or `required` cannot displace the option of the same name
 - `anyOf` of a type and `null`, or of branches that all agree, keeps the type
   instead of degrading to `:any`
-- structurally identical inline schemas are emitted as one model
 - operations with no `operationId` are named for their verb and path; two that
   would land on one name are both refused
 - a document with no `servers` is a note, and building such a client without

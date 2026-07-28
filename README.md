@@ -268,8 +268,9 @@ declares, and that is not this library's call to make.
 
 A document a server produced from its own routes tends to be missing the things
 a hand-written one has, and the generator has to cope rather than refuse.
-[`examples/sidecar.json`](examples/sidecar.json) is one, checked in exactly as
-the service prints it — ten routes, and every one of these true at once:
+[`examples/sidecar-inline.json`](examples/sidecar-inline.json) is one, checked in
+exactly as the service printed it — ten routes, and every one of these true at
+once:
 
 - **No `operationId`.** The verb and the path are then all there is to name a
   method with, so `POST /didcomm/pack/encrypted` becomes
@@ -289,7 +290,36 @@ the service prints it — ten routes, and every one of these true at once:
 
 A document like this is worth more as a test than one written for the purpose,
 because it was not written for the purpose. Every defect found in the generator
-so far came from pointing it at that file rather than at the two below.
+so far came from pointing it at that file rather than at the two hand-written
+ones.
+
+### What naming them is worth
+
+[`examples/sidecar.json`](examples/sidecar.json) is the same service after it
+gave its eight shared shapes a `$id`, and nothing else about it changed: same ten
+routes, still no `operationId`, still no `servers`, still printed rather than
+written. So the pair is the one place here that isolates what a name does.
+
+| | inline | named |
+| --- | --- | --- |
+| models | 71 | **32** |
+| `types.rb` | 434 lines | **179 lines** |
+| RBS | 686 lines | **302 lines** |
+| notes | 13 | **4** |
+
+The forty-odd models that go are the copies. A DIDComm message is one type
+instead of four, so a caller can build a message and pack it encrypted, signed
+and plaintext — with four types there was no value that more than one of the
+three would take. The notes drop the same way: `Attachment.data` is an `anyOf`
+with nothing to dispatch on once rather than four times.
+
+It also settles a case the generator cannot settle itself. `POST /did/resolve`
+answers 200 and 400 with the same shape, and in the inline document those are two
+schemas that merely look alike, so they stay two types — matching them up would
+hand a caller rescuing the error a type whose name said the call had succeeded.
+In the named document both say `DIDResolutionResult`, which is the document
+stating that they are one type, and the generator agrees because it was told
+rather than because it guessed. Both examples pin their own side of that.
 
 ## Where the names come from
 
@@ -307,7 +337,7 @@ still the right way round, because the name a structural match keeps is a
 record of where the generator walked first rather than of anything in the
 document. That is how 56 unrelated Stripe operations came to share a body type
 called `PostAccountsAccountLoginLinksBody`, 25 more a type called after a card
-mandate, and how the sidecar's `POST /did/resolve` came to declare its own
+mandate, and how the inline sidecar's `POST /did/resolve` came to declare its own
 success type as its 400 body — a caller rescuing the error got a value whose
 class said the call had succeeded.
 
@@ -318,7 +348,7 @@ than one of the two silently losing its body.
 
 ## Tests
 
-`rake` regenerates the examples, validates their RBS, and runs the specs — 176
+`rake` regenerates the examples, validates their RBS, and runs the specs — 184
 RSpec examples covering name mapping in both directions, nested and array
 models, pattern matching, query array explosion, header parameters overriding
 credentials, per-operation security, typed error bodies, binary, text and
@@ -343,11 +373,22 @@ GitHub's document turned one up. It also carries both sides of the `deepObject`
 line at once: `GET /widgets/search` takes one on an object and is generated,
 `GET /widgets` takes one on an array and is the document's single refusal.
 
-A third, [`examples/sidecar.json`](examples/sidecar.json), was not written for
-this at all — see above. Its client is generated and its RBS validated on every
-run like the others, and [`spec/sidecar_spec.rb`](spec/sidecar_spec.rb) asserts
-that every one of its types is named after the operation it was written under,
-which is the whole of the naming rule on a document that names nothing itself.
+The third and fourth were not written for this at all — see above — and are two
+prints of one service, before and after it named its shared shapes. Both clients
+are generated and both RBS files validated on every run like the others.
+[`spec/sidecar_inline_spec.rb`](spec/sidecar_inline_spec.rb) asserts that every
+type in [`examples/sidecar-inline.json`](examples/sidecar-inline.json) is named
+after the operation it was written under, which is the whole of the naming rule
+on a document that names nothing itself;
+[`spec/sidecar_spec.rb`](spec/sidecar_spec.rb) asserts that
+[`examples/sidecar.json`](examples/sidecar.json) takes the eight names the
+document does give, that the operations sharing a shape share a type, and that
+what the document still leaves inline is still named by position.
+
+The inline copy is frozen on purpose. It does not track the service and is not
+refreshed from it — what it holds is not the sidecar but the shape of a document
+with no `components` at all, which is a thing servers emit and which nothing else
+here exercises.
 
 The optional adapters are covered by the same suite, over the same socket, when
 faraday and http.rb happen to be installed. They are marked pending otherwise,

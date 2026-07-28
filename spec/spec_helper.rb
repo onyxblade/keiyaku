@@ -12,6 +12,7 @@ require "tmpdir"
 require_relative "../examples/petstore/client"
 require_relative "../examples/widgets/client"
 require_relative "../examples/sidecar/client"
+require_relative "../examples/sidecar-inline/client"
 
 require_relative "support/test_server"
 require_relative "support/clients"
