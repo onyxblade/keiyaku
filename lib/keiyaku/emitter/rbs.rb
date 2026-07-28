@@ -202,7 +202,7 @@ module Keiyaku
           "#{type_for(types[param] || ":any")} #{Keiyaku.snake(param)}"
         end
         payload = op[:body] || op[:form] || op[:multipart]
-        positional << "#{type_for(payload)} body" if payload
+        positional << "#{"?" unless op[:body_required]}#{type_for(payload)} body" if payload
 
         keyword = lambda do |json_name, ruby_name|
           required = op[:required].include?(json_name)

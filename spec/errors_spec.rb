@@ -19,6 +19,35 @@ RSpec.describe "failure" do
       end
   end
 
+  # A document is entitled to describe its client errors by range rather than
+  # one code at a time, and "4XX" is then the entry a 422 is answered by.
+  it "casts an error body the document described as a range" do
+    expect { widgets.add_note(2, locale: "en") }.to raise_error(Keiyaku::ClientError) do |error|
+      expect(error.status).to eq 422
+      expect(error.parsed).to be_a(Widgets::Problem)
+      expect(error.parsed.detail).to eq "that locale is not supported"
+    end
+  end
+
+  # Three ways a document can name the same response, and the narrowest of them
+  # is the one it meant: writing both a 404 and a 4XX is saying that 404 is not
+  # like the others.
+  describe "a status a document described more than one way" do
+    let(:table) { { 404 => :code, "4XX" => :range, :default => :catch_all } }
+
+    it "answers with the code's own entry" do
+      expect(Keiyaku.for_status(table, 404)).to eq :code
+    end
+
+    it "answers with the range where the code has no entry" do
+      expect(Keiyaku.for_status(table, 422)).to eq :range
+    end
+
+    it "answers with the catch-all where neither covers it" do
+      expect(Keiyaku.for_status(table, 503)).to eq :catch_all
+    end
+  end
+
   it "casts a default error body, and calls 5xx a ServerError" do
     expect { widgets.get_widget(2) }.to raise_error(Keiyaku::ServerError) do |error|
       expect(error.parsed).to be_a(Widgets::Problem)

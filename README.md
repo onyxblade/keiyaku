@@ -14,7 +14,7 @@ operations, 6 schemas):
 | --- | --- | --- |
 | generated Ruby | 4,316 lines across 25 files | **67 lines across 2 files** |
 | RBS | none | 88 lines |
-| shared runtime | — | 878 lines, written once |
+| shared runtime | — | 939 lines, written once |
 
 The whole client:
 
@@ -286,7 +286,7 @@ subtly wrong. When this one cannot translate a construct faithfully it says so
 at generation time and emits an operation that raises:
 
 ```
-7/8 operations, 3 files
+8/9 operations, 3 files
 
 refused to generate 1 operation(s):
   - list_widgets: query parameter expand uses style=deepObject on a schema that is not an object
@@ -429,17 +429,20 @@ class said the call had succeeded.
 
 The one thing that is still shared is a name derived twice. An operation's 400
 and its 404 are both `#{name}Error`, and where the document gives them the same
-shape they are one model; where it does not, the operation is refused rather
-than one of the two silently losing its body.
+shape they are one model; where it does not, the second is named for its status
+— `#{name}404Error` — the way a second success response already was. Two names
+derived from one document are not the same thing as two schemas matched up by
+structure, which is what the rule above is about.
 
 ## Tests
 
-`rake` regenerates the examples, validates their RBS, and runs the specs — 184
+`rake` regenerates the examples, validates their RBS, and runs the specs — 252
 RSpec examples covering name mapping in both directions, nested and array
 models, pattern matching, query array explosion, header parameters overriding
-credentials, per-operation security, typed error bodies, binary, text and
-multipart request bodies, discriminated unions, responses cast by their status,
-all four pagination strategies, and cast errors naming the offending field.
+credentials, per-operation security, typed error bodies, binary, text, vendor
+JSON and multipart request bodies, discriminated unions, responses cast by
+their status and by the range their status falls in, all four pagination
+strategies, and cast errors naming the offending field.
 
 Nothing is stubbed. The generated clients talk to a real HTTP server on a real
 socket ([`spec/support/test_server.rb`](spec/support/test_server.rb)), which
@@ -455,7 +458,10 @@ snake_case (which the camelCase convention would otherwise guess wrong). Its
 `POST /widgets/import` holds the three things a document is entitled to say
 and Ruby is awkward about — a text body, a parameter called `until`, and two
 success statuses that are two types — because each of them was a refusal until
-GitHub's document turned one up. It also carries both sides of the `deepObject`
+GitHub's document turned one up. `POST /widgets/{id}/notes` holds three more
+that were wrong rather than refused: a body under the server's own `+json`
+media type, a body the document never required, and errors described as `4XX`
+rather than one code at a time. It also carries both sides of the `deepObject`
 line at once: `GET /widgets/search` takes one on an object and is generated,
 `GET /widgets` takes one on an array and is the document's single refusal.
 

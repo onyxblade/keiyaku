@@ -7,15 +7,15 @@ module SidecarInline
   class Client < Keiyaku::Client
     server nil
 
-    post   :post_didcomm_pack_encrypted, "/didcomm/pack/encrypted", body: PostDidcommPackEncryptedBody, into: PostDidcommPackEncryptedResult, errors: { 400 => PostDidcommPackEncryptedError }
-    post   :post_didcomm_pack_signed, "/didcomm/pack/signed", body: PostDidcommPackSignedBody, into: PostDidcommPackSignedResult, errors: { 400 => PostDidcommPackSignedError }
-    post   :post_didcomm_pack_plaintext, "/didcomm/pack/plaintext", body: PostDidcommPackPlaintextBody, into: PostDidcommPackPlaintextResult, errors: { 400 => PostDidcommPackPlaintextError }
-    post   :post_didcomm_unpack, "/didcomm/unpack", body: PostDidcommUnpackBody, into: PostDidcommUnpackResult, errors: { 400 => PostDidcommUnpackError }
-    post   :post_did_resolve, "/did/resolve", body: PostDidResolveBody, into: PostDidResolveResult, errors: { 400 => PostDidResolveError, 404 => PostDidResolveError }
-    post   :post_did_didcomm_doc, "/did/didcomm-doc", body: PostDidDidcommDocBody, into: PostDidDidcommDocResult, errors: { 400 => PostDidDidcommDocError, 404 => PostDidDidcommDocError }
-    post   :post_did_peer_4, "/did/peer/4", body: PostDidPeer4Body, into: PostDidPeer4Result, errors: { 400 => PostDidPeer4Error }
-    post   :post_did_peer_4_create, "/did/peer/4/create", body: PostDidPeer4CreateBody, into: PostDidPeer4CreateResult, errors: { 400 => PostDidPeer4CreateError }
-    post   :post_did_peer_4_resolve_short, "/did/peer/4/resolve-short", body: PostDidPeer4ResolveShortBody, into: PostDidPeer4ResolveShortResult, errors: { 400 => PostDidPeer4ResolveShortError }
+    post   :post_didcomm_pack_encrypted, "/didcomm/pack/encrypted", body: PostDidcommPackEncryptedBody, body_required: true, into: PostDidcommPackEncryptedResult, errors: { 400 => PostDidcommPackEncryptedError }
+    post   :post_didcomm_pack_signed, "/didcomm/pack/signed", body: PostDidcommPackSignedBody, body_required: true, into: PostDidcommPackSignedResult, errors: { 400 => PostDidcommPackSignedError }
+    post   :post_didcomm_pack_plaintext, "/didcomm/pack/plaintext", body: PostDidcommPackPlaintextBody, body_required: true, into: PostDidcommPackPlaintextResult, errors: { 400 => PostDidcommPackPlaintextError }
+    post   :post_didcomm_unpack, "/didcomm/unpack", body: PostDidcommUnpackBody, body_required: true, into: PostDidcommUnpackResult, errors: { 400 => PostDidcommUnpackError }
+    post   :post_did_resolve, "/did/resolve", body: PostDidResolveBody, body_required: true, into: PostDidResolveResult, errors: { 400 => PostDidResolveError, 404 => PostDidResolveError }
+    post   :post_did_didcomm_doc, "/did/didcomm-doc", body: PostDidDidcommDocBody, body_required: true, into: PostDidDidcommDocResult, errors: { 400 => PostDidDidcommDocError, 404 => PostDidDidcommDocError }
+    post   :post_did_peer_4, "/did/peer/4", body: PostDidPeer4Body, body_required: true, into: PostDidPeer4Result, errors: { 400 => PostDidPeer4Error }
+    post   :post_did_peer_4_create, "/did/peer/4/create", body: PostDidPeer4CreateBody, body_required: true, into: PostDidPeer4CreateResult, errors: { 400 => PostDidPeer4CreateError }
+    post   :post_did_peer_4_resolve_short, "/did/peer/4/resolve-short", body: PostDidPeer4ResolveShortBody, body_required: true, into: PostDidPeer4ResolveShortResult, errors: { 400 => PostDidPeer4ResolveShortError }
     get    :get_health, "/health", into: GetHealthResult
   end
 end

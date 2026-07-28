@@ -18,6 +18,7 @@ module Widgets
   WidgetCreated = Keiyaku.model({ kind: String, widget: Widget }, required: %i[kind widget])
   WidgetRetired = Keiyaku.model({ kind: String, id: Integer, reason: String }, required: %i[kind id])
   ImportQueued = Keiyaku.model({ job_id: String }, required: %i[job_id], from: { job_id: "job_id" })
+  Note = Keiyaku.model({ text: String, locale: String }, required: %i[text])
   Event = Keiyaku::OneOf[WidgetCreated, WidgetRetired, on: "kind", map: { "created" => WidgetCreated, "retired" => WidgetRetired }]
   UploadPhotoBody = Keiyaku.model({ file: :upload, caption: String, tags: [String] }, required: %i[file])
   SearchWidgetsFilter = Keiyaku.model({ status: String, since: Time })

@@ -151,6 +151,47 @@ RSpec.describe "building a request" do
     end
   end
 
+  # `+json` is a media type saying its bytes are JSON under a name of the
+  # server's own. A server that documents one is entitled to refuse the same
+  # bytes labelled application/json, so the label is the document's.
+  describe "a body under a vendor media type" do
+    let!(:note) { widgets.add_note(1, Widgets::Note.new(text: "chewed"), locale: "en") }
+    let(:request) { sent }
+
+    it "sends the type the document named" do
+      expect(request.content_type).to eq "application/vnd.widgets.v2+json"
+    end
+
+    it "sends JSON under it, which is what the suffix says it is" do
+      expect(JSON.parse(request.body)).to eq({ "text" => "chewed" })
+    end
+
+    it "decodes the response" do
+      expect(note).to eq Widgets::Note.new(text: "chewed", locale: "en")
+    end
+  end
+
+  # A request body is optional unless the document says otherwise, and this one
+  # does not. Left out it has to be no body at all: `null` under a Content-Type
+  # is a body, and one that says something the caller did not.
+  describe "a body the document did not require" do
+    before { widgets.add_note(1, locale: "en") }
+
+    let(:request) { sent }
+
+    it "sends no bytes" do
+      expect(request.body.to_s).to be_empty
+    end
+
+    it "claims no media type for the bytes it did not send" do
+      expect(request.headers).not_to include("content-type")
+    end
+
+    it "still sends the parameters" do
+      expect(request.query).to eq({ "locale" => "en" })
+    end
+  end
+
   # A body the document describes as text goes out as it stands, like a binary
   # one; the media type is the only difference, and the document names it.
   describe "a text body" do

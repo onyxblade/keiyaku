@@ -20,6 +20,25 @@ RSpec.describe "generated method signatures" do
     expect { petstore.get_pet_by_id }.to raise_error(ArgumentError)
   end
 
+  # A path item's parameters hold for every operation under it, and one that
+  # names the same parameter again is narrowing it rather than asking for a
+  # second of them: `locale` is optional on the path and required here, and it
+  # is one keyword either way.
+  it "takes the operation's word over the path item's for the same parameter" do
+    expect(Widgets::Client.instance_method(:add_note).parameters)
+      .to eq [%i[req id], %i[opt body], %i[keyreq locale]]
+  end
+
+  # The specification defaults a request body to optional, so a method whose
+  # document never required one can be called without it.
+  it "gives a body the document did not require a default" do
+    expect { widgets.add_note(1, locale: "en") }.not_to raise_error
+  end
+
+  it "still requires one the document did require" do
+    expect { widgets.import_widgets }.to raise_error(ArgumentError)
+  end
+
   # Which parameters are required is said in one place rather than marked on
   # each name, so a document is free to name one `notify!` and a `required:`
   # that names nothing is a mistake worth hearing about at the first load.

@@ -61,6 +61,10 @@ module Keiyaku
   def self.coerce: (untyped type, untyped value, String path) -> untyped
   def self.dump: (untyped) -> untyped
 
+  # Keyed by an exact code, by a range like "4XX", or by :default, narrowest
+  # first. The table is the operation's, so its values are whatever it holds.
+  def self.for_status: (Hash[untyped, untyped] table, Integer status) -> untyped
+
   # Returns a Keiyaku::Model subclass built at runtime; the generator emits a
   # proper class declaration for each one alongside the code. The fields are a
   # positional Hash so that a property named `from` cannot displace the option.
@@ -104,11 +108,17 @@ module Keiyaku
     def cast: (untyped, ?String) -> untyped
   end
 
+  # Keyed by the code itself or by the range the document wrote in place of
+  # one, which is a String because `2XX` is not a number.
   class ByStatus
-    def self.[]: (Hash[Integer, untyped] types) -> ByStatus
-    def initialize: (Hash[Integer, untyped]) -> void
+    def self.[]: (Hash[Integer | String, untyped] types) -> ByStatus
+    def initialize: (Hash[Integer | String, untyped]) -> void
     def []: (Integer status) -> untyped
-    def types: () -> Hash[Integer, untyped]
+    def types: () -> Hash[Integer | String, untyped]
+
+    private
+
+    def normalise: (untyped status) -> untyped
   end
 
   class Upload
@@ -185,7 +195,7 @@ module Keiyaku
       Symbol verb, Symbol name, String template,
       ?query: Array[Symbol], ?deep_object: Array[String], ?header: Hash[String, Symbol],
       ?required: Array[Symbol | String],
-      ?body: untyped, ?form: untyped, ?multipart: untyped, ?content_type: String?,
+      ?body: untyped, ?form: untyped, ?multipart: untyped, ?content_type: String?, ?body_required: bool,
       ?into: untyped, ?errors: Hash[untyped, untyped], ?security: untyped,
       ?paginate: Hash[Symbol, untyped]?
     ) -> void

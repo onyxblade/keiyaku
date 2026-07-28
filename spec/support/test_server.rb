@@ -99,6 +99,12 @@ module TestServer
       in ["POST", "/v1/widgets"] then [422, { "detail" => "that id is taken", "source" => "id" }]
       in ["POST", "/v1/widgets/1/photo"] then [200, WIDGET.(1)]
 
+      # A note, or a 422 the document only described as one of the 4XXs.
+      in ["POST", "/v1/widgets/1/notes"] then
+        [201, { "text" => request.body.to_s.empty? ? "" : JSON.parse(request.body)["text"],
+                "locale" => query["locale"] }]
+      in ["POST", "/v1/widgets/2/notes"] then [422, { "detail" => "that locale is not supported" }]
+
       # Answers with the widgets, or with a job when there are too many to do
       # now: two statuses, two types, and the client has to tell them apart.
       in ["POST", "/v1/widgets/import"] then

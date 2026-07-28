@@ -440,10 +440,12 @@ module Keiyaku
       own = []
       model = build_model(const, merge_all_of(schema), own, upload:)
 
-      # The same name asked for twice is not two types. One operation's 400 and
-      # its 404 are both `#{name}_error`, and where the document gives them the
-      # same shape they are one model — agreeing on a name they both derived is
-      # not the same as being matched up by structure.
+      # The same name asked for twice is not two types. Two schemas written in
+      # different corners of a document can derive one name — an operation
+      # called `pet_error` and a component called `PetError` — and where they
+      # turn out to be the same shape they are one model, since agreeing on a
+      # name they both derived is not the same as being matched up by
+      # structure.
       #
       # Where they disagree, typing it :any instead would leave the caller a
       # Hash where the document describes a shape, and no way to tell which of
@@ -566,13 +568,29 @@ module Keiyaku
       { name:, unsupported: e.message }
     end
 
+    # What one operation takes: the parameters the path item declared for every
+    # operation under it, and the ones the operation declared for itself. A
+    # parameter is the pair of its name and where it goes, and an operation
+    # naming one the path item already named is narrowing it — a shared `limit`
+    # made required here, or given a smaller maximum — rather than asking for a
+    # second parameter of the same name. Concatenating the two lists would put
+    # it in the client twice, which is a keyword written twice and a file Ruby
+    # will not parse; the duplicate check further down would then report the
+    # document's legal override as the document's mistake.
+    def parameters(op, path_item)
+      declared = ((path_item["parameters"] || []) + (op["parameters"] || [])).map { resolve(_1) }
+
+      # Last wins, and the operation's are last.
+      declared.reverse.uniq { [_1["name"], _1["in"]] }.reverse
+    end
+
     def translate(verb, template, op, path_item, name)
       if (problem = server_problem(op, path_item))
         raise Impossible, problem
       end
 
       deps = []
-      params = ((path_item["parameters"] || []) + (op["parameters"] || [])).map { resolve(_1) }
+      params = parameters(op, path_item)
       query, deep_object, header, required, types = [], [], {}, [], {}
 
       params.each do |param|
@@ -612,13 +630,33 @@ module Keiyaku
       end
 
       body = form = multipart = content_type = nil
+      # A request body is optional unless the document says otherwise, which is
+      # the specification's default and not this generator's leniency. The
+      # difference is a real one at the call site: POST /user with no body is
+      # a request the server has an answer for, and a client that cannot make
+      # it has to be worked around with a `nil` that goes out as `null`.
+      body_required = false
       if (request_body = resolve(op["requestBody"]))
+        body_required = request_body["required"] == true
         content = request_body["content"] || {}
-        json = content.keys.find { _1.include?("json") }
         binary = content.keys.find { _1 == "application/octet-stream" || content[_1].dig("schema", "format") == "binary" }
+
+        # `+json` is the suffix a vendor media type wears to say its bytes are
+        # JSON, so a body under any of these is one this can build. Where the
+        # document names the plain type as well, that is the one to send: a
+        # server naming both takes both, and the vendor spelling usually
+        # selects a version of the API nobody has asked this client for.
+        jsons = content.keys.select { _1.include?("json") }
+        json = jsons.find { _1 == "application/json" } || jsons.first
 
         if json
           body = type_for(content[json]["schema"], "#{name}_body", deps)
+          # Carried only where it is not the plain type, which is what the
+          # runtime sends for a body that says nothing. A server documenting
+          # application/vnd.github+json is entitled to refuse the same bytes
+          # under another name, so the document's own type goes on the wire.
+          content_type = json unless json == "application/json"
+          @notes << "#{name}: request body is sent as #{json}, of #{jsons.join(", ")}" if jsons.size > 1
         elsif content.key?("application/x-www-form-urlencoded")
           form = type_for(content["application/x-www-form-urlencoded"]["schema"], "#{name}_body", deps)
         elsif content.key?("multipart/form-data")
@@ -655,7 +693,7 @@ module Keiyaku
       into = success.empty? ? nil : success
 
       { name:, verb:, template:, query:, deep_object:, header:, required:, types:, body:, form:, multipart:,
-        content_type:, into:, errors:, hint:, paginate: (hint && hash_source(hint)),
+        content_type:, body_required:, into:, errors:, hint:, paginate: (hint && hash_source(hint)),
         security: @security.source_for(name, op), summary: op["summary"], deps: }
     end
 
@@ -668,24 +706,30 @@ module Keiyaku
     # answer, and casting the second into the first's type is what would need
     # excusing.
     def responses(op, name, deps)
-      errors, success, seen = {}, {}, {}
+      errors, success = {}, {}
+      seen = { "result" => {}, "error" => {} }
 
       (op["responses"] || {}).each do |status, response|
+        # `x-` is how an object holds something the specification never gave it
+        # a field for, and the Responses Object is an object like any other.
+        next if status.to_s.start_with?("x-")
+
+        status = status_for(status)
         content = resolve(response)["content"] || {}
         json = content.keys.find { _1.include?("json") }
         schema = json && content[json]["schema"]
+        answered = success_status?(status)
 
-        if !status.to_i.between?(200, 299)
-          errors[status == "default" ? ":default" : status] = type_for(schema, "#{name}_error", deps) if schema
-        elsif schema
+        if schema
           # Later ones are named for their status, so that two which do not
           # turn out to be the same shape are told apart. Two which do are the
           # document repeating itself inside one operation, and the second has
           # no schema of its own to be named after — which is not the same as
           # two schemas being matched up by structure and one losing its name.
-          success[status] = seen[schema] ||=
-            type_for(schema, "#{name}#{"_#{status}" if success.any?}_result", deps)
-        elsif content.any?
+          table, kind = answered ? [success, "result"] : [errors, "error"]
+          table[status_key(status)] = seen[kind][schema] ||=
+            type_for(schema, "#{name}#{"_#{status}" if table.any?}_#{kind}", deps)
+        elsif answered && content.any?
           @notes << "#{name}: #{status} is #{content.keys.join(", ")}, which is returned as the raw body"
         end
       end
@@ -694,6 +738,34 @@ module Keiyaku
       # table to consult at runtime.
       success = success.first(1).to_h if success.values.uniq.size == 1
       [success, errors]
+    end
+
+    # What a document may write where a response's status goes: a code, one of
+    # the five ranges the specification allows in place of one, or `default`.
+    # Anything else is not something a response can be matched against, and it
+    # is refused here rather than carried: `4xx` written into the client as it
+    # stands is not Ruby, and a file that will not parse takes down every other
+    # operation in it along with the one that spoiled it.
+    def status_for(status)
+      status = status.to_s
+      return status.upcase if status.match?(/\A[1-5]xx\z/i)
+      return status if status == "default" || status.match?(/\A[1-5]\d\d\z/)
+
+      raise Impossible, "response #{status.inspect} is neither a status code, a range like 4XX, nor default"
+    end
+
+    # A range covering the successes is one of them; `default` is not, being
+    # what the document says about everything it did not describe, and an
+    # operation whose only answer was a catch-all has no type to return.
+    def success_status?(status) = status == "2XX" || status.to_i.between?(200, 299)
+
+    # The key as the generated client writes it. A range is a String — `2XX` is
+    # neither a number nor a name Ruby will take — and the catch-all is the
+    # symbol the runtime looks under once the exact code and the range miss.
+    def status_key(status)
+      return ":default" if status == "default"
+
+      status.match?(/\A\d+\z/) ? status : status.inspect
     end
 
     # `deepObject` has exactly one row in the specification's table of styles:
@@ -894,6 +966,7 @@ module Keiyaku
         args << "form: #{op[:form]}" if op[:form]
         args << "multipart: #{op[:multipart]}" if op[:multipart]
         args << "content_type: #{op[:content_type].inspect}" if op[:content_type]
+        args << "body_required: true" if (op[:body] || op[:form] || op[:multipart]) && op[:body_required]
         args << "into: #{into_source(op[:into])}" if op[:into]
         args << "errors: { #{op[:errors].map { |status, type| "#{status} => #{type}" }.join(", ")} }" if op[:errors].any?
         args << "paginate: #{op[:paginate]}" if op[:paginate]

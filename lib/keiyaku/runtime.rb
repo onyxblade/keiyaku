@@ -135,6 +135,16 @@ module Keiyaku
     end
   end
 
+  # What a table of responses says about one status. A document keys an entry
+  # by the code itself, by one of the ranges it is allowed to write in place of
+  # one — "4XX" for every client error — or by `default` for whatever it did
+  # not describe. The narrowest of them answers: a 404 is answered by its own
+  # entry before the range's, and by the range's before the catch-all, which is
+  # the order the document wrote them in for.
+  def for_status(table, status)
+    table[status] || table["#{status / 100}XX"] || table[:default]
+  end
+
   # Build a value type for one schema.
   #
   #   Pet = Keiyaku.model({ id: Integer, name: String }, required: %i[name])
@@ -352,10 +362,20 @@ module Keiyaku
     attr_reader :types
 
     def initialize(types)
-      @types = types.to_h { |status, type| [status.to_i, type] }.freeze
+      @types = types.to_h { |status, type| [normalise(status), type] }.freeze
     end
 
-    def [](status) = @types[status]
+    def [](status) = Keiyaku.for_status(@types, status)
+
+    private
+
+    # A code is the number it is however it was written, and a range is the
+    # string it was written as, in the case the specification writes it in.
+    def normalise(status)
+      return status.to_i if status.to_s.match?(/\A\d+\z/)
+
+      status.is_a?(String) ? status.upcase : status
+    end
   end
 
   # One file in a multipart/form-data body.
@@ -555,7 +575,7 @@ module Keiyaku
       # `items:` names the field holding the page's contents when the response
       # is an envelope; without it the response is the array itself.
       def operation(verb, name, template, query: [], deep_object: [], header: {}, required: [], body: nil, form: nil,
-                    multipart: nil, content_type: nil, into: nil, errors: {},
+                    multipart: nil, content_type: nil, body_required: false, into: nil, errors: {},
                     security: :inherit, paginate: nil)
         path_params = template.scan(/\{(\w+)\}/).flatten
         # A name in `required:` that belongs to no parameter of this operation
@@ -581,7 +601,12 @@ module Keiyaku
         }
 
         positional = path_params.map { Keiyaku.snake(_1) }
-        positional << "body" if body || form || multipart
+        # A body is optional unless it was required, which is the default the
+        # specification sets and this says nothing more than. The method can
+        # then be called without one, and UNSET is how the caller says nothing
+        # rather than says nothing in particular: `nil` is a body, and goes out
+        # as `null`.
+        positional << (body_required ? "body" : "body = Keiyaku::UNSET") if body || form || multipart
         keywords = query_params.map { |param, req| "#{Keiyaku.snake(param)}:#{" Keiyaku::UNSET" unless req}" } +
                    header_params.map { |_, ruby, req| "#{ruby}:#{" Keiyaku::UNSET" unless req}" }
 
@@ -704,7 +729,11 @@ module Keiyaku
       header.each { |k, v| headers[k] = Serialize.stringify(v) unless UNSET.equal?(v) }
 
       payload =
-        if op[:multipart]
+        if UNSET.equal?(body)
+          # An optional body left out is no body at all: no bytes, and no
+          # Content-Type claiming there are some.
+          nil
+        elsif op[:multipart]
           boundary = "keiyaku-#{SecureRandom.hex(16)}"
           headers["Content-Type"] = "multipart/form-data; boundary=#{boundary}"
           Serialize.multipart(Keiyaku.dump(body), boundary)
@@ -715,7 +744,9 @@ module Keiyaku
           headers["Content-Type"] = op[:content_type]
           body.respond_to?(:read) ? body.read : body
         elsif op[:body]
-          headers["Content-Type"] = "application/json"
+          # The document's own media type where it named one: a `+json` vendor
+          # type is these bytes under the name its server documents.
+          headers["Content-Type"] = op[:content_type] || "application/json"
           JSON.generate(Keiyaku.dump(body))
         end
 
@@ -723,7 +754,7 @@ module Keiyaku
       parsed = __parse(raw, response_headers)
 
       unless (200..299).cover?(status)
-        error_type = op[:errors][status] || op[:errors][:default]
+        error_type = Keiyaku.for_status(op[:errors], status)
         parsed = error_type.cast(parsed, "error") if error_type && parsed.is_a?(Hash)
         klass = status >= 500 ? ServerError : ClientError
         raise klass.new(status:, headers: response_headers, body: raw, parsed:)

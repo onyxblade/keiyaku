@@ -878,6 +878,180 @@ RSpec.describe Keiyaku::Emitter do
     end
   end
 
+  # `4XX` is what a document writes to describe its client errors in one go.
+  # It is neither a number nor a name, so the generated client has to quote it
+  # — unquoted it is not Ruby, and the file it spoils is the whole client
+  # rather than the one operation that spoiled it.
+  describe "a response keyed by a range" do
+    def answering(*statuses, shape: "{ type: object, properties: { detail: { type: string } } }")
+      described = statuses.map do |status|
+        %(  "#{status}": { description: said, content: { application/json: { schema: #{shape} } } })
+      end
+
+      document("operationId: listThings\nresponses:\n#{described.join("\n")}")
+    end
+
+    def client(dir) = File.read(File.join(dir, "client.rb"))
+
+    it "is written as the String the runtime reads it back as" do
+      generate(answering("4XX")) do |emitter, dir|
+        expect(client(dir)).to include(%(errors: { "4XX" => ListThingsError }))
+        expect(emitter.broken).to be_nil
+      end
+    end
+
+    it "is a success where it covers the successes" do
+      generate(answering("2XX")) { |_, dir| expect(client(dir)).to include("into: ListThingsResult") }
+    end
+
+    it "is written in the case the specification writes it in" do
+      generate(answering("5xx")) { |_, dir| expect(client(dir)).to include(%(errors: { "5XX" =>)) }
+    end
+
+    # The exact code and the range are both entries, and the runtime reads the
+    # narrower one first; the generator's part is to write both down.
+    it "sits alongside a code the document also described" do
+      generate(answering("404", "4XX")) do |_, dir|
+        expect(client(dir)).to include(%(errors: { 404 => ListThingsError, "4XX" => ListThingsError }))
+      end
+    end
+
+    it "is refused where it is a status nothing can be matched against" do
+      emitter = generate(answering("okay"))
+      expect(emitter.refusals.first.reason).to include(%(response "okay" is neither a status code))
+    end
+
+    # The Responses Object takes `x-` fields like any other object, and one of
+    # them is not a response the operation ever makes.
+    it "leaves an x- field where it found it" do
+      generate(answering("200", "x-note")) { |_, dir| expect(client(dir)).not_to include("x-note") }
+    end
+  end
+
+  # Two errors of one shape are one type by both deriving the same name. Two of
+  # different shapes are two types, and naming the second for its status is
+  # what the success responses already do — refusing the operation would be
+  # this generator having nothing to say about a document that is plainly
+  # legible.
+  describe "more than one error response" do
+    def failing(second)
+      document(<<~YAML)
+        operationId: listThings
+        responses:
+          "200": { description: ok }
+          "404": { description: gone, content: { application/json: { schema: { type: object, properties: { detail: { type: string } } } } } }
+          "500": { description: boom, content: { application/json: { schema: #{second} } } }
+      YAML
+    end
+
+    it "names the second for its status where the shapes disagree" do
+      generate(failing("{ type: object, properties: { trace: { type: string } } }")) do |emitter, dir|
+        expect(File.read(File.join(dir, "client.rb")))
+          .to include("errors: { 404 => ListThingsError, 500 => ListThings500Error }")
+        expect(emitter.refusals).to be_empty
+      end
+    end
+
+    it "is one type where they agree" do
+      generate(failing("{ type: object, properties: { detail: { type: string } } }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb")))
+          .to include("errors: { 404 => ListThingsError, 500 => ListThingsError }")
+      end
+    end
+  end
+
+  # A path item's parameters hold for every operation under it. An operation
+  # naming one of them again is the document narrowing it — required here,
+  # optional elsewhere — rather than asking for two parameters of one name,
+  # which is a keyword written twice and a file Ruby will not parse.
+  describe "a parameter an operation declares again" do
+    def overriding(op_parameter)
+      spec(<<~YAML)
+        /things:
+          parameters:
+            - { name: limit, in: query, schema: { type: integer } }
+          get:
+            operationId: listThings
+            parameters:
+              - #{op_parameter}
+            responses: { "200": { description: ok } }
+      YAML
+    end
+
+    it "is one parameter, on the operation's terms" do
+      generate(overriding("{ name: limit, in: query, required: true, schema: { type: integer } }")) do |emitter, dir|
+        expect(File.read(File.join(dir, "client.rb"))).to include("query: %i[limit], required: %i[limit]")
+        expect(emitter.refusals).to be_empty
+      end
+    end
+
+    # Same name, somewhere else: two parameters by the specification's reckoning
+    # and one Ruby keyword, which is the collision the check is there for.
+    it "is still two where the document puts them in different places" do
+      emitter = generate(overriding("{ name: limit, in: header, schema: { type: integer } }"))
+      expect(emitter.refusals.first.reason).to include("two of its parameters are both called limit")
+    end
+  end
+
+  describe "a request body" do
+    def sending(body)
+      document(<<~YAML).sub("get:", "post:")
+        operationId: makeThing
+        requestBody:
+        #{body.gsub(/^/, "  ").rstrip}
+        responses: { "200": { description: ok } }
+      YAML
+    end
+
+    let(:schema) { "{ type: object, properties: { name: { type: string } } }" }
+
+    # A `+json` media type says its bytes are JSON under a name the server
+    # chose, and a server documenting one is entitled to refuse the same bytes
+    # labelled application/json.
+    it "keeps a vendor media type the document named" do
+      generate(sending("content: { application/vnd.acme.v2+json: { schema: #{schema} } }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb")))
+          .to include(%(body: MakeThingBody, content_type: "application/vnd.acme.v2+json"))
+      end
+    end
+
+    it "says nothing where the media type is the one the runtime sends anyway" do
+      generate(sending("content: { application/json: { schema: #{schema} } }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb"))).not_to include("content_type:")
+      end
+    end
+
+    # A server naming both takes both, and the vendor spelling usually selects
+    # a version of the API nobody has asked this client for.
+    it "prefers the plain type where the document declares both, and says so" do
+      emitter = generate(sending(<<~YAML)) do |_, dir|
+        content:
+          application/vnd.acme.v2+json: { schema: #{schema} }
+          application/json: { schema: #{schema} }
+      YAML
+        expect(File.read(File.join(dir, "client.rb"))).not_to include("content_type:")
+      end
+      expect(emitter.notes).to include(a_string_including("sent as application/json, of application/vnd.acme.v2+json"))
+    end
+
+    # The specification's own default, and a real difference at the call site:
+    # POST with no body is a request the server has an answer for, and a client
+    # that cannot make it leaves the caller a `nil` that goes out as `null`.
+    it "is optional where the document did not require it, and says as little as the document did" do
+      generate(sending("content: { application/json: { schema: #{schema} } }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb"))).not_to include("body_required:")
+        expect(File.read(File.join(dir, "refused.rbs"))).to include("def make_thing: (?MakeThingBody body)")
+      end
+    end
+
+    it "is required where the document said so, which is the only case worth writing down" do
+      generate(sending("required: true\ncontent: { application/json: { schema: #{schema} } }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb"))).to include("body_required: true")
+        expect(File.read(File.join(dir, "refused.rbs"))).to include("def make_thing: (MakeThingBody body)")
+      end
+    end
+  end
+
   # Which parameters are required is said in one place, so a name is only ever
   # a name: a document is entitled to call one `notify!`, and marking
   # requiredness on the end of it would have made that one required and sent

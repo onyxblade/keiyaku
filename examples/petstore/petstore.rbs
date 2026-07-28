@@ -72,17 +72,17 @@ module Petstore
     def get_pet_by_id: (Integer pet_id) -> Pet
     def update_pet_with_form: (Integer pet_id, ?name: String?, ?status: String?) -> Pet
     def delete_pet: (Integer pet_id, ?api_key: String?) -> untyped
-    def upload_file: (Integer pet_id, String body, ?additional_metadata: String?) -> ApiResponse
+    def upload_file: (Integer pet_id, ?String body, ?additional_metadata: String?) -> ApiResponse
     def get_inventory: () -> Hash[String, Integer]
-    def place_order: (Order body) -> Order
+    def place_order: (?Order body) -> Order
     def get_order_by_id: (Integer order_id) -> Order
     def delete_order: (Integer order_id) -> untyped
-    def create_user: (User body) -> User
-    def create_users_with_list_input: (Array[User] body) -> User
+    def create_user: (?User body) -> User
+    def create_users_with_list_input: (?Array[User] body) -> User
     def login_user: (?username: String?, ?password: String?) -> String
     def logout_user: () -> untyped
     def get_user_by_name: (String username) -> User
-    def update_user: (String username, User body) -> untyped
+    def update_user: (String username, ?User body) -> untyped
     def delete_user: (String username) -> untyped
   end
 end

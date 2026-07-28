@@ -50,6 +50,12 @@ components:
       required: [job_id]
       properties:
         job_id: { type: string }
+    Note:
+      type: object
+      required: [text]
+      properties:
+        text: { type: string }
+        locale: { type: string }
     Event:
       oneOf:
         - $ref: "#/components/schemas/WidgetCreated"
@@ -163,6 +169,38 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/ImportQueued" }
+  # Three more things a document says plainly and that a client has to carry
+  # rather than round off: a body under the server's own media type, a body it
+  # never required, and errors described by range instead of one at a time.
+  /widgets/{id}/notes:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: integer } }
+      # Declared here for every operation under this path, and narrowed by the
+      # one below. Same name and same place is one parameter with two things
+      # said about it, not two parameters that collide.
+      - { name: locale, in: query, schema: { type: string } }
+    post:
+      operationId: addNote
+      parameters:
+        - { name: locale, in: query, required: true, schema: { type: string } }
+      # No `required: true`, which the specification reads as optional: this
+      # endpoint takes an empty note, and a client that cannot send one has
+      # nothing to offer but a `nil` that goes out as `null`.
+      requestBody:
+        content:
+          application/vnd.widgets.v2+json:
+            schema: { $ref: "#/components/schemas/Note" }
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Note" }
+        "4XX":
+          description: anything the caller got wrong
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Problem" }
   /widgets/search:
     get:
       operationId: searchWidgets

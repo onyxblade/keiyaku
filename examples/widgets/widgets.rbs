@@ -44,6 +44,14 @@ module Widgets
     def with: (?job_id: String) -> ImportQueued
   end
 
+  class Note < ::Keiyaku::Model
+    attr_reader text: String
+    attr_reader locale: String?
+    def self.cast: (untyped, ?String) -> Note
+    def self.new: (text: String, ?locale: String?) -> Note
+    def with: (?text: String, ?locale: String?) -> Note
+  end
+
   type event = WidgetCreated | WidgetRetired
   Event: Keiyaku::OneOf
 
@@ -74,10 +82,11 @@ module Widgets
 
   class Client < Keiyaku::Client
     def list_widgets: (*untyped) -> bot  # not generated: query parameter expand uses style=deepObject on a schema that is not an object
-    def create_widget: (Widget body) -> Widget
+    def create_widget: (?Widget body) -> Widget
     def get_widget: (Integer id) -> Widget
     def upload_photo: (Integer id, UploadPhotoBody body) -> Widget
     def import_widgets: (String body, ?until: Time?) -> (Array[Widget] | ImportQueued)
+    def add_note: (Integer id, ?Note body, locale: String) -> Note
     def search_widgets: (q: String, ?cursor: String?, ?filter: SearchWidgetsFilter?) -> SearchWidgetsResult
     def search_widgets_each: (q: String, ?cursor: String?, ?filter: SearchWidgetsFilter?) ?{ (Widget) -> void } -> Enumerator[Widget, void]
     def widget_feed: () -> Array[Widget]

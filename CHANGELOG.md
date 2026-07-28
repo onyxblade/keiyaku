@@ -88,6 +88,32 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
   `required: %i[status]`, rather than marked with a bang on the end of each
   name. A document may name a parameter `notify!` itself, and the mark made
   that one required and sent it as `notify`
+- a response keyed by a range — `4XX`, which is how a document describes its
+  client errors in one go — is matched as one instead of read as the number 4.
+  It used to be written into the client unquoted, which is not Ruby: the file
+  did not parse, so every other operation in it was lost along with the one
+  that carried the range. The runtime reads the exact code first, then the
+  range that covers it, then `default`. A status that is none of the three is
+  refused, which costs the one operation rather than the file
+- an operation's second error response is named for its status where the shapes
+  disagree, the way a second success response already was. Two errors of one
+  shape are still one type; two of different shapes used to refuse the
+  operation over the name they both derived
+- a request body is optional unless the document required it, which is the
+  specification's default and so is the DSL's: `body_required: true` is written
+  down and its absence is the document's silence, rather than the other way
+  round. It used to be a positional argument either way, so an endpoint that
+  takes an empty body could only be called with a `nil` that went out as `null`
+  under a Content-Type. Left out now it is no body at all
+- a request body under a vendor media type keeps it: `application/vnd.acme+json`
+  is built as the JSON its `+json` says it is, and sent under the name the
+  document gave rather than relabelled `application/json`, which a server
+  documenting the one is entitled to refuse. Where a document declares both,
+  the plain type is taken and the choice is a note
+- a parameter an operation declares again is the document narrowing the path
+  item's — required here, optional elsewhere — rather than two parameters of
+  one name. It used to be both, which is one Ruby keyword written twice, and
+  the operation was refused for a duplicate the document never wrote
 - `servers` on a path item or an operation is answered rather than ignored: it
   is refused unless the client's own server is among the ones it lists, since
   generating it would send that operation, and its credentials, to a host the
