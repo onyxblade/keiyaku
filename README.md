@@ -13,8 +13,8 @@ operations, 6 schemas):
 | | `openapi-generator -g ruby` | this |
 | --- | --- | --- |
 | generated Ruby | 4,316 lines across 25 files | **67 lines across 2 files** |
-| RBS | none | 82 lines |
-| shared runtime | — | 556 lines, written once |
+| RBS | none | 88 lines |
+| shared runtime | — | 878 lines, written once |
 
 The whole client:
 
@@ -124,6 +124,22 @@ Some unions are only unions on paper, and those keep their type. `anyOf: [{type:
 string}, {type: null}]` is how OpenAPI 3.1 says a field may be null, and a union
 whose branches all resolve to the same type says nothing that type does not:
 both become `String`. Neither is a guess, so neither is worth a note.
+
+An `enum` is read as the type it restricts and nothing more: `{type: string,
+enum: [available, pending, sold]}` is a `String`, in the model and in the RBS
+alike. The values are not carried, not checked when a response is cast, and not
+checked when a request goes out — a value the document does not list is a call
+the client makes happily.
+
+This is a gap rather than a decision about what the list means. Two things are
+worth knowing about closing it. The values belong in the signature, where RBS
+has literal types and `status: "avaliable"` can be a typo the typechecker
+catches, and not in the cast, where enforcing them would break a working client
+on a server adding a value — which OpenAPI permits and APIs do. And an `enum`
+in JSON Schema is a list of values, not a list of strings: objects, arrays and
+mixed types are all legal in one, and none of those has a literal to be written
+as, so any version of this describes some lists and leaves the rest as the type
+they already are.
 
 A schema that says `additionalProperties` is a document telling you there will
 be properties it did not name, and the model keeps them. DIDComm is the case in
