@@ -466,9 +466,7 @@ module Keiyaku
     # --- operations ---------------------------------------------------------
 
     def collect_operations
-      if @spec.dig("servers", 0, "url").to_s.empty?
-        @notes << "no servers declared; a client has to be built with base_url:"
-      end
+      @server = choose_server
 
       @security = Security.new(schemes: security_schemes, default: @spec["security"], notes: @notes)
 
@@ -483,7 +481,7 @@ module Keiyaku
         end
 
         path_item.slice("get", "put", "post", "delete", "patch", "head", "options").map do |verb, op|
-          build_operation(verb, template, op, path_item["parameters"] || [])
+          build_operation(verb, template, op, path_item)
         end
       end
 
@@ -502,6 +500,47 @@ module Keiyaku
       operations.uniq { _1[:unsupported] ? _1[:name] : _1.object_id }
     end
 
+    # The one address the generated client is built for. A document may name
+    # several, and this takes the first — but says so, because which of them a
+    # client talks to is not a detail to discover from traffic.
+    #
+    # A URL with variables in it is a URL the document has not finished
+    # writing: `https://{region}.api.test` is not an address, and substituting
+    # a default would be this generator picking a region. It is treated as the
+    # document naming no server at all, which is a case the runtime already
+    # has an answer for.
+    def choose_server
+      servers = @spec["servers"] || []
+      url = servers.dig(0, "url").to_s
+
+      if url.empty?
+        @notes << "no servers declared; a client has to be built with base_url:"
+        return nil
+      end
+      if url.include?("{")
+        @notes << "the server URL #{url} has variables in it; a client has to be built with base_url:"
+        return nil
+      end
+
+      @notes << "#{servers.size} servers declared; #{url} is the one generated" if servers.size > 1
+      url
+    end
+
+    # `servers` on a path item or an operation is an address this client does
+    # not have: the class declares one server, and every method it defines
+    # goes there. Where the client's own is among those declared, that is a
+    # document listing alternatives and the generator picking one of them.
+    # Where it is not, the operation is one whose requests — and whose
+    # credentials — would go somewhere the document did not send them, which
+    # is a refusal rather than a note.
+    def server_problem(op, path_item)
+      declared = (op["servers"] || path_item["servers"] || []).filter_map { _1["url"] }
+      return if declared.empty? || declared.include?(@server)
+
+      "declares its own server (#{declared.join(", ")}), and this client is generated for " \
+        "#{@server || "no server at all"}"
+    end
+
     # An operationId is optional, and plenty of documents that a server
     # generates from its own routes carry none, so the verb and the path are
     # all there is to go on. A path parameter becomes `by_x`, which keeps
@@ -510,7 +549,7 @@ module Keiyaku
       Names.operation(op["operationId"] || "#{verb}_#{template.gsub(/\{(\w+)\}/) { "by_#{$1}" }}")
     end
 
-    def build_operation(verb, template, op, inherited_params)
+    def build_operation(verb, template, op, path_item)
       label = op["operationId"] || "#{verb.upcase} #{template}"
       begin
         name = operation_name(verb, template, op)
@@ -521,15 +560,19 @@ module Keiyaku
         return { name: nil, label:, unsupported: e.message }
       end
 
-      translate(verb, template, op, inherited_params, name)
+      translate(verb, template, op, path_item, name)
     rescue Impossible => e
       @refusals << Refusal.new(name, e.message)
       { name:, unsupported: e.message }
     end
 
-    def translate(verb, template, op, inherited_params, name)
+    def translate(verb, template, op, path_item, name)
+      if (problem = server_problem(op, path_item))
+        raise Impossible, problem
+      end
+
       deps = []
-      params = (inherited_params + (op["parameters"] || [])).map { resolve(_1) }
+      params = ((path_item["parameters"] || []) + (op["parameters"] || [])).map { resolve(_1) }
       query, deep_object, header, types = [], [], {}, {}
 
       params.each do |param|
@@ -861,7 +904,7 @@ module Keiyaku
 
         module #{@namespace}
           class Client < Keiyaku::Client
-            server #{@spec.dig("servers", 0, "url").inspect}
+            server #{@server.inspect}
         #{@security.table}
         #{lines.join("\n")}
           end

@@ -84,3 +84,9 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
 - a `Link` target that points at another origin raises instead of being
   followed with the client's credentials on it, and a relative one is resolved
   against the request that carried it rather than parsed as if it were whole
+- `servers` on a path item or an operation is answered rather than ignored: it
+  is refused unless the client's own server is among the ones it lists, since
+  generating it would send that operation, and its credentials, to a host the
+  document did not name. Several at the top level is a note saying which was
+  taken, and a URL with variables in it is treated as no address at all rather
+  than sent to a host called `{region}`

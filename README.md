@@ -297,6 +297,16 @@ no way to send. Then, because the mistakes it does not know to look for
 are still in the file it wrote, it reads that file back in another process and
 reports what will not load as a bug in itself.
 
+`servers` is the same judgement about an address. The client declares one and
+every method it defines goes there, so a path item or an operation that names
+a server of its own is refused unless the client's is among the ones it lists
+— generating it anyway would send that operation's requests, and the
+credentials on them, to a host the document did not name. Where the document
+declares several at the top level the first is generated and the note says so,
+and a URL with variables in it (`https://{region}.api.test`) is treated as no
+address at all, since substituting a default would be the generator picking a
+region.
+
 The line it draws is the specification's, not a shortlist of what has been
 implemented. `deepObject` is the clearest case. Its one row in OpenAPI's table
 of styles is an object, exploded, and that is generated:
@@ -490,6 +500,9 @@ matrix runs 3.2, the floor `Data.define` puts the gemspec at, through 4.0.
   business being set on a request, and one flag cannot mean both
 - pagination has to be declared in the document; for a spec you do not control
   there is no hints file to declare it in
+- a client is built for one server. An operation that overrides it is refused
+  rather than sent somewhere else, and server variables have no substitution,
+  so both are for the application to supply through `base_url:`
 - regeneration overwrites wholesale; there is no merge strategy for hand edits,
   which bites hardest on the operations it refused and left you to write
 - nothing is published; the gem builds and installs but has never been pushed,

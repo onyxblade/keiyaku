@@ -1091,4 +1091,62 @@ RSpec.describe Keiyaku::Emitter do
       end
     end
   end
+
+  # The client declares one address and every method it defines goes there, so
+  # what the document says about the others has to be answered rather than
+  # skipped: the failure this prevents is a request, with credentials on it,
+  # arriving somewhere the document never sent it.
+  describe "a document that names more than one server" do
+    def listing = "operationId: listThings\nresponses: { \"200\": { description: ok } }"
+
+    it "generates the first, and says which" do
+      emitter = generate(document(listing, servers: '[{ url: "https://one.test" }, { url: "https://two.test" }]'))
+      expect(emitter.refusals).to be_empty
+      expect(emitter.notes).to include("2 servers declared; https://one.test is the one generated")
+    end
+
+    # `https://{region}.api.test` is not an address, and choosing a default
+    # for the variable would be the generator picking a region.
+    it "treats a templated URL as no address at all" do
+      generate(document(listing, servers: '[{ url: "https://{region}.api.test" }]')) do |emitter, dir|
+        expect(emitter.notes).to include(/has variables in it/)
+        expect(File.read(File.join(dir, "client.rb"))).to include("server nil")
+      end
+    end
+
+    it "refuses an operation that declares a server of its own" do
+      emitter = generate(spec(<<~YAML))
+        /things:
+          get:
+            operationId: listThings
+            servers: [{ url: "https://elsewhere.test" }]
+            responses: { "200": { description: ok } }
+      YAML
+      expect(emitter.refusals.first.reason).to include("declares its own server (https://elsewhere.test)")
+    end
+
+    it "refuses one whose path item declares it" do
+      emitter = generate(spec(<<~YAML))
+        /things:
+          servers: [{ url: "https://elsewhere.test" }]
+          get:
+            operationId: listThings
+            responses: { "200": { description: ok } }
+      YAML
+      expect(emitter.refusals.first.reason).to include("this client is generated for https://refused.test")
+    end
+
+    # A path that lists the client's own server among its alternatives is a
+    # document repeating itself, not one sending the operation elsewhere.
+    it "generates one that names the server the client already has" do
+      emitter = generate(spec(<<~YAML))
+        /things:
+          servers: [{ url: "https://refused.test" }, { url: "https://mirror.test" }]
+          get:
+            operationId: listThings
+            responses: { "200": { description: ok } }
+      YAML
+      expect(emitter.refusals).to be_empty
+    end
+  end
 end
