@@ -33,6 +33,12 @@ jobs:
       - name: the generated RBS resolves
         run: bundle exec rake rbs
 
+      # Resolving is not the same as being true. This reads calling code
+      # against the signatures emitted for it, in both directions: usage that
+      # has to type-check, and usage that has to be refused.
+      - name: the generated RBS describes the client beside it
+        run: bundle exec rake steep
+
       - name: the specs
         run: bundle exec rake spec
 

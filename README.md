@@ -102,6 +102,17 @@ The gem ships `sig/keiyaku.rbs` for the runtime itself, so a generated
 validates the examples against it, which is the check that would have caught
 the generated RBS being subtly unresolvable.
 
+That the signatures resolve is not yet that they are true. `rake steep` reads
+[`checks/`](checks) — calling code for each example, which never runs — against
+the RBS emitted beside that example, so a signature that has drifted from the
+client it describes fails the build rather than somebody's editor.
+[`checks/rejected.rb`](checks/rejected.rb) asks it from the other side: every
+line there is wrong on purpose and names the complaint it has to draw, because
+correct usage cannot tell a signature that is right from one that has quietly
+gone `untyped` — both accept it. Steep reports an ignore comment it did not
+need, so the day a type stops constraining what it says it constrains, the
+assertion that it does goes redundant and the run fails.
+
 The DSL builds real methods with real arity — `get :get_pet_by_id,
 "/pet/{petId}"` defines `get_pet_by_id(pet_id)`, and calling it wrong raises
 `ArgumentError` at the call, not a confusing failure inside the client.
@@ -410,13 +421,13 @@ structure, which is what the rule above is about.
 
 ## Tests
 
-`rake` regenerates the examples, validates their RBS, and runs the specs — 247
-RSpec examples covering name mapping in both directions, nested and array
-models, pattern matching, query array explosion, header parameters overriding
-credentials, per-operation security, typed error bodies, binary, text, vendor
-JSON and multipart request bodies, discriminated unions, responses cast by
-their status and by the range their status falls in, and cast errors naming the
-offending field.
+`rake` regenerates the examples, validates their RBS, type-checks calling code
+against it, and runs the specs — 247 RSpec examples covering name mapping in
+both directions, nested and array models, pattern matching, query array
+explosion, header parameters overriding credentials, per-operation security,
+typed error bodies, binary, text, vendor JSON and multipart request bodies,
+discriminated unions, responses cast by their status and by the range their
+status falls in, and cast errors naming the offending field.
 
 Nothing is stubbed. The generated clients talk to a real HTTP server on a real
 socket ([`spec/support/test_server.rb`](spec/support/test_server.rb)), which

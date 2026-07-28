@@ -35,7 +35,12 @@ task :rbs do
   sh "rbs #{includes.map { "-I #{_1}" }.join(" ")} validate"
 end
 
+desc "Type-check calling code against the generated RBS"
+task :steep do
+  sh "steep check"
+end
+
 desc "Drive the generated clients against a real socket"
 RSpec::Core::RakeTask.new(:spec)
 
-task default: %i[examples rbs spec]
+task default: %i[examples rbs steep spec]
