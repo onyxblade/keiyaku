@@ -19,7 +19,4 @@ module Clients
 
   # The request the client just made.
   def sent = TestServer.take
-
-  # The next `count` requests, oldest first.
-  def sent_all(count) = Array.new(count) { TestServer.take }
 end

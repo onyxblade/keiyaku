@@ -242,8 +242,7 @@ paths:
         - { name: cursor, in: query, schema: { type: string } }
         # The other side of the same line: `deepObject` on an object is the
         # one thing the style does mean, and the properties give it a type of
-        # its own rather than leaving the caller a bare Hash. It rides along
-        # with the pagination, since a filter holds across pages.
+        # its own rather than leaving the caller a bare Hash.
         - name: filter
           in: query
           style: deepObject
@@ -252,7 +251,6 @@ paths:
             properties:
               status: { type: string }
               since: { type: string, format: date-time }
-      x-keiyaku-paginate: { by: cursor, param: cursor, next: next_cursor, items: items }
       responses:
         "200":
           description: ok
@@ -263,16 +261,6 @@ paths:
                 properties:
                   items: { type: array, items: { $ref: "#/components/schemas/Widget" } }
                   next_cursor: { type: string }
-  /widgets/feed:
-    get:
-      operationId: widgetFeed
-      x-keiyaku-paginate: { by: link }
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema: { type: array, items: { $ref: "#/components/schemas/Widget" } }
   /widgets/{id}/events:
     get:
       operationId: listEvents
@@ -280,7 +268,6 @@ paths:
         - { name: id, in: path, required: true, schema: { type: integer } }
         - { name: limit, in: query, schema: { type: integer } }
         - { name: offset, in: query, schema: { type: integer } }
-      x-keiyaku-paginate: { by: offset, param: offset, size: limit, per: 2 }
       responses:
         "200":
           description: ok

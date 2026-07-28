@@ -86,24 +86,6 @@ module Keiyaku
         types.include?("untyped") ? "untyped" : types.join(" | ")
       end
 
-      # What the enumerator yields: the element of the array being paged over,
-      # which is either the response itself or a field of the envelope.
-      def paginate_element(op)
-        # A page is one shape; an operation whose statuses disagree is not one
-        # this can name, and pagination over it would be walking two types.
-        return "untyped" unless op[:into]&.size == 1
-
-        source = op[:into].values.first
-        if (items = op[:hint]["items"])
-          model = @models[source]
-          return "untyped" unless model.is_a?(Model)
-
-          source = model.fields[Keiyaku.snake(items)]
-        end
-
-        source.to_s.start_with?("[") ? type_for(source[1..-2].strip) : "untyped"
-      end
-
       # RBS has no constant that stands for a union, so a union component becomes
       # a type alias for signatures to use, plus the constant itself for callers
       # that reach for `Event.cast`.
@@ -212,12 +194,7 @@ module Keiyaku
         keywords = op[:query].map { keyword.(_1, _1) } +
                    op[:header].map { |json, ruby| keyword.(json, ruby) }
         arguments = (positional + keywords).join(", ")
-        signature = "    def #{op[:name]}: (#{arguments}) -> #{op[:into] ? return_type(into_type(op[:into])) : "untyped"}"
-        return signature unless op[:paginate]
-
-        element = paginate_element(op)
-        "#{signature}\n    def #{op[:name]}_each: (#{arguments}) " \
-          "?{ (#{element}) -> void } -> Enumerator[#{element}, void]"
+        "    def #{op[:name]}: (#{arguments}) -> #{op[:into] ? return_type(into_type(op[:into])) : "untyped"}"
       end
     end
   end

@@ -89,10 +89,6 @@ module Widgets
     def add_note: (Integer id, ?Note body, locale: String) -> Note
     def replace_labels: (Integer id, Hash[String, String] body, ?x_tags: Array[String]?, ?x_context: Hash[String, String]?) -> Hash[String, String]
     def search_widgets: (q: String, ?cursor: String?, ?filter: SearchWidgetsFilter?) -> SearchWidgetsResult
-    def search_widgets_each: (q: String, ?cursor: String?, ?filter: SearchWidgetsFilter?) ?{ (Widget) -> void } -> Enumerator[Widget, void]
-    def widget_feed: () -> Array[Widget]
-    def widget_feed_each: () ?{ (Widget) -> void } -> Enumerator[Widget, void]
     def list_events: (Integer id, ?limit: Integer?, ?offset: Integer?) -> Array[event]
-    def list_events_each: (Integer id, ?limit: Integer?, ?offset: Integer?) ?{ (event) -> void } -> Enumerator[event, void]
   end
 end

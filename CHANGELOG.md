@@ -40,8 +40,6 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
 - `oneOf`/`anyOf` with a `discriminator` becomes a `Keiyaku::OneOf`, including
   the document's `mapping`; without one it stays `:any` and says so
 - `multipart/form-data` request bodies, with `Keiyaku::Upload` for file parts
-- pagination, declared per operation with an `x-keiyaku-paginate` extension:
-  `offset`, `page`, `cursor` and `link`, exposed as `#{name}_each`
 - optional adapters for faraday and http.rb, required explicitly rather than
   depended on
 - response header names are lower-cased before use, so an adapter that returns
@@ -77,13 +75,8 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
   every `require` of the client after it. The same for `deepObject` names and
   for the refusals written as comments, which are now kept to the one line a
   comment holds
-- `x-keiyaku-paginate` keys are checked against the ones it has, so `pre:` for
-  `per:` is a refusal rather than a walk that reads its page size off nothing
 - `--module` has to be one Ruby constant, said against the flag rather than
   found later in a file that will not load
-- a `Link` target that points at another origin raises instead of being
-  followed with the client's credentials on it, and a relative one is resolved
-  against the request that carried it rather than parsed as if it were whole
 - which query and header parameters are required is declared once, as
   `required: %i[status]`, rather than marked with a bang on the end of each
   name. A document may name a parameter `notify!` itself, and the mark made

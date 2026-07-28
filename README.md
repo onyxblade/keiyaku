@@ -111,7 +111,7 @@ It is said in one place rather than marked on each name, because a name is the
 document's — one called `notify!` is a parameter called `notify!`, not an
 optional one wearing the mark for a required one.
 
-## Unions, uploads, pages
+## Unions and uploads
 
 A `oneOf` carrying a `discriminator` becomes a union that dispatches on it:
 
@@ -206,32 +206,6 @@ post :import_widgets, "/widgets/import", body: :text, content_type: "text/csv",
 and the RBS returns `(Array[Widget] | ImportQueued)`, which is a caller that
 has to look. A status the document did not describe is passed through undecoded
 rather than cast into a type the server never claimed to be sending.
-
-Pagination is declared in the document, because OpenAPI has no way to describe
-it and a parameter named `page` is not evidence of anything:
-
-```yaml
-x-keiyaku-paginate: { by: offset, param: offset, size: limit, per: 100 }
-```
-
-```ruby
-client.list_events_each(7)                 # => Enumerator of Event
-client.list_events_each(7).lazy.first(20)  # one request, not all of them
-client.list_events_each(7) { |event| ... }
-```
-
-Four strategies: `offset` and `page` advance a parameter until a page comes
-back short, `cursor` reads the next cursor out of the response (`next:`, plus
-`items:` when the response is an envelope), and `link` follows an RFC 8288
-`Link: <...>; rel="next"` header. A hint naming a parameter the operation does
-not have — or a key the extension does not have — is refused rather than
-ignored, since what it would otherwise produce is a client that pages forever.
-
-A `Link` target may be relative, and is resolved against the request that
-carried it. One pointing at another origin raises: the credentials are the
-client's and the URL is the server's, so following it would send an
-`Authorization` header, or an API key in a query, to a host the document never
-named.
 
 ## Transport
 
@@ -436,13 +410,13 @@ structure, which is what the rule above is about.
 
 ## Tests
 
-`rake` regenerates the examples, validates their RBS, and runs the specs — 252
+`rake` regenerates the examples, validates their RBS, and runs the specs — 247
 RSpec examples covering name mapping in both directions, nested and array
 models, pattern matching, query array explosion, header parameters overriding
 credentials, per-operation security, typed error bodies, binary, text, vendor
 JSON and multipart request bodies, discriminated unions, responses cast by
-their status and by the range their status falls in, all four pagination
-strategies, and cast errors naming the offending field.
+their status and by the range their status falls in, and cast errors naming the
+offending field.
 
 Nothing is stubbed. The generated clients talk to a real HTTP server on a real
 socket ([`spec/support/test_server.rb`](spec/support/test_server.rb)), which
@@ -508,8 +482,10 @@ matrix runs 3.2, the floor `Data.define` puts the gemspec at, through 4.0.
   directions. Until they are, `required:` cannot be enforced when a model is
   constructed — the Petstore's `Pet.id` is required in a response and has no
   business being set on a request, and one flag cannot mean both
-- pagination has to be declared in the document; for a spec you do not control
-  there is no hints file to declare it in
+- there is no pagination. OpenAPI describes none, and a parameter named `page`
+  is not evidence of anything, so walking an operation has to be declared —
+  which for a document you did not write means a hints file, and there is none.
+  Until there is, the loop over the pages belongs to the application
 - a client is built for one server. An operation that overrides it is refused
   rather than sent somewhere else, and server variables have no substitution,
   so both are for the application to supply through `base_url:`

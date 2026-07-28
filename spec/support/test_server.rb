@@ -26,7 +26,6 @@ module TestServer
   }.freeze
 
   WIDGET = ->(id) { { "id" => id, "created_at" => "2026-07-26T10:00:00Z" } }
-  EVENTS = (1..5).map { { "kind" => "retired", "id" => _1 } }.freeze
 
   class << self
     def requests = @requests ||= Queue.new
@@ -123,24 +122,8 @@ module TestServer
                { "kind" => "retired", "id" => 1, "reason" => "end of life" }]]
       in ["GET", "/v1/widgets/3/events"] then [200, [{ "kind" => "exploded" }]]
 
-      # Three pages by offset, the last one short.
-      in ["GET", "/v1/widgets/7/events"] then
-        [200, EVENTS[query["offset"].to_i, (query["limit"] || EVENTS.size).to_i] || []]
-
-      # Three pages by cursor, the last one without a next.
-      in ["GET", "/v1/widgets/search"] then
-        page = query["cursor"].to_i
-        envelope = { "items" => [WIDGET.(page + 1)] }
-        envelope["next_cursor"] = (page + 1).to_s if page < 2
-        [200, envelope]
-
-      # Two pages by Link header. The capital L is the point.
-      in ["GET", "/v1/widgets/feed"] then
-        if query["page"] == "2"
-          [200, [WIDGET.(2)]]
-        else
-          [200, [WIDGET.(1)], { "Link" => %(<#{url("/v1/widgets/feed?page=2")}>; rel="next") }]
-        end
+      # The widgets that matched, in the envelope the document describes.
+      in ["GET", "/v1/widgets/search"] then [200, { "items" => [WIDGET.(1)] }]
 
       else [500, { "message" => "unexpected #{request.verb} #{request.target}" }]
       end

@@ -613,24 +613,13 @@ module Keiyaku
       # `style: deepObject`, which go out spelled a key at a time:
       #   get :list, "/widgets", query: %i[filter], deep_object: %w[filter]
       #
-      # `paginate:` describes how to walk the operation. OpenAPI says nothing
-      # about pagination, so nothing here is inferred — the shape is declared:
-      #
-      #   { by: :offset, param: "offset", size: "limit", per: 100 }
-      #   { by: :page,   param: "page",   size: "limit", per: 100, from: 1 }
-      #   { by: :cursor, param: "cursor", next: "next_cursor", items: "items" }
-      #   { by: :link }                     # RFC 8288 Link: <...>; rel="next"
-      #
-      # `items:` names the field holding the page's contents when the response
-      # is an envelope; without it the response is the array itself.
-      #
       # `explode:` names the path and header parameters the document wrote
       # `explode` on, which is the one thing that cannot be read off the value
       # itself: an object goes out as `role=admin,name=alex` where it was said
       # and as `role,admin,name,alex` where it was not.
       def operation(verb, name, template, query: [], deep_object: [], header: {}, explode: [], required: [],
                     body: nil, form: nil, multipart: nil, content_type: nil, body_required: false, into: nil,
-                    errors: {}, security: :inherit, paginate: nil)
+                    errors: {}, security: :inherit)
         path_params = template.scan(/\{(\w+)\}/).flatten
         # A name in `required:` that belongs to no parameter of this operation
         # would quietly leave a required one optional, which is a 400 at the
@@ -646,7 +635,7 @@ module Keiyaku
         header_params = header.map { |json, ruby| [json.to_s, ruby.to_s, needed.include?(json.to_s)] }
 
         operations[name] = {
-          verb:, template:, body:, form:, multipart:, content_type:, into:, errors:, paginate:,
+          verb:, template:, body:, form:, multipart:, content_type:, into:, errors:,
           # nil is the operation that said nothing and takes the document's
           # requirement; every other spelling is a requirement of its own.
           security: (security == :inherit ? nil : requirement(security)),
@@ -683,17 +672,6 @@ module Keiyaku
         class_eval <<~RUBY, __FILE__, __LINE__ + 1
           def #{name}(#{(positional + keywords).join(", ")})
             __invoke(:#{name}, #{arguments})
-          end
-        RUBY
-
-        return unless paginate
-
-        # Named for what it does rather than overloading the operation: one
-        # call is one request, and this one is a loop of them.
-        class_eval <<~RUBY, __FILE__, __LINE__ + 1
-          def #{name}_each(#{[*positional, *keywords, "&block"].join(", ")})
-            pages = __paginate(:#{name}, #{arguments})
-            block ? pages.each(&block) : pages
           end
         RUBY
       end
@@ -755,12 +733,9 @@ module Keiyaku
       end
     end
 
-    def __invoke(...) = __request(...).first
-
-    # The whole of one call. Split out from __invoke only because pagination
-    # needs the response headers and the ability to follow a URL the server
-    # handed back, neither of which an operation method has any use for.
-    def __request(name, path:, query:, header:, body:, url: nil)
+    # The whole of one call: the request this operation describes, and the
+    # response read back under the type the document gave it.
+    def __invoke(name, path:, query:, header:, body:)
       op = self.class.operations.fetch(name)
 
       headers = { "Accept" => "application/json" }
@@ -768,16 +743,8 @@ module Keiyaku
       __authenticate(name, op, headers, credentials)
 
       uri = URI.parse(@base_url + __path(op, path))
-
-      if url
-        uri = __follow(name, uri, url)
-        # A URL the server handed back carries the query it wants; the
-        # credentials are ours, and still have to be on it.
-        uri.query = [uri.query, URI.encode_www_form(credentials)].compact.reject(&:empty?).join("&") if credentials.any?
-      else
-        pairs = Serialize.query(query.reject { |_, v| UNSET.equal?(v) }, deep: op[:deep_object]) + credentials
-        uri.query = URI.encode_www_form(pairs) unless pairs.empty?
-      end
+      pairs = Serialize.query(query.reject { |_, v| UNSET.equal?(v) }, deep: op[:deep_object]) + credentials
+      uri.query = URI.encode_www_form(pairs) unless pairs.empty?
 
       # After the credentials, so an explicit parameter of the same name wins.
       header.each do |param, value|
@@ -820,7 +787,7 @@ module Keiyaku
 
       into = op[:into]
       into = into[status] if into.is_a?(ByStatus)
-      [into ? Keiyaku.coerce(into, parsed, name.to_s) : parsed, response_headers]
+      into ? Keiyaku.coerce(into, parsed, name.to_s) : parsed
     end
 
     # The template with each of its parameters written into it, in the same
@@ -844,81 +811,6 @@ module Keiyaku
       Keiyaku.coerce(type, parsed, "error")
     rescue CastError
       parsed
-    end
-
-    # Walk a paginated operation, yielding items rather than pages: the page is
-    # a transport detail, and an Enumerator means `.lazy.first(20)` stops after
-    # as many requests as that actually needs.
-    def __paginate(name, path:, query:, header:, body:)
-      rule = self.class.operations.fetch(name).fetch(:paginate)
-      query = query.dup
-
-      per = rule[:per]
-      if rule[:size]
-        per = query[rule[:size]] unless UNSET.equal?(query[rule[:size]])
-        query[rule[:size]] = per if per
-      end
-
-      Enumerator.new do |yielder|
-        # A cursor is only known after a page has come back, so the first
-        # request must leave the parameter off entirely.
-        cursor = rule[:from] || { page: 1, offset: 0 }.fetch(rule[:by], UNSET)
-        url = nil
-
-        loop do
-          query[rule[:param]] = cursor if rule[:param]
-          page, headers = __request(name, path:, query:, header:, body:, url:)
-          items = Array(rule[:items] ? __field(page, rule[:items]) : page)
-          items.each { yielder << _1 }
-
-          case rule[:by]
-          when :offset then cursor += per || items.size
-          when :page   then cursor += 1
-          when :cursor then cursor = __field(page, rule[:next])
-          when :link   then url = __next_link(headers["link"])
-          else raise Error, "#{name}: unknown pagination strategy #{rule[:by].inspect}"
-          end
-
-          # A short page ends the walk where the server reports a page size;
-          # otherwise only an empty one does, which costs one extra request.
-          break if items.empty? || (per && items.size < per)
-          break if rule[:by] == :cursor && (cursor.nil? || cursor.to_s.empty?)
-          break if rule[:by] == :link && url.nil?
-        end
-      end
-    end
-
-    # A page's contents live under a JSON name in an undecoded response and
-    # under the Ruby name once a model has been cast; try both.
-    def __field(page, name)
-      return page[name.to_s] || page[Keiyaku.snake(name)] if page.is_a?(Hash)
-
-      page.public_send(Keiyaku.snake(name))
-    end
-
-    # Where a `rel=next` points, which is the one URL in a call this client
-    # did not build. RFC 8288 lets the target be relative, and relative to the
-    # URI of the request whose header carried it.
-    #
-    # The credentials on that request are ours and the target is the server's,
-    # so a `next` pointing at another host is how an API's own answer walks an
-    # Authorization header — or an API key, which goes in the query — off to
-    # somewhere that was never documented to receive it. It is not followed
-    # without them either: what came back would not be this operation's answer.
-    def __follow(name, from, url)
-      target = URI.join(from, url)
-      return target if [target.scheme, target.host, target.port] == [from.scheme, from.host, from.port]
-
-      raise Error, "#{name}: the next page is #{target.origin}, and this client is #{from.origin}; " \
-                   "following it would send the credentials somewhere the document did not name"
-    end
-
-    def __next_link(header)
-      header.to_s.split(",").each do |link|
-        url, *params = link.split(";").map(&:strip)
-        return url[/\A<(.*)>\z/, 1] if params.any? { _1.match?(/\Arel\s*=\s*"?next"?\z/) }
-      end
-      nil
     end
 
     def __send_with_retries(verb, uri, headers, payload)

@@ -198,8 +198,7 @@ module Keiyaku
       ?query: Array[Symbol], ?deep_object: Array[String], ?header: Hash[String, Symbol],
       ?explode: Array[String], ?required: Array[Symbol | String],
       ?body: untyped, ?form: untyped, ?multipart: untyped, ?content_type: String?, ?body_required: bool,
-      ?into: untyped, ?errors: Hash[untyped, untyped], ?security: untyped,
-      ?paginate: Hash[Symbol, untyped]?
+      ?into: untyped, ?errors: Hash[untyped, untyped], ?security: untyped
     ) -> void
 
     def self.unsupported: (Symbol name, String reason) -> void

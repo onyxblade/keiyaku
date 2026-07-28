@@ -54,42 +54,6 @@ RSpec.describe Keiyaku::Emitter do
     YAML
   end
 
-  describe "a pagination hint" do
-    def paginated(hint)
-      document(<<~YAML)
-        operationId: listThings
-        parameters:
-          - { name: limit, in: query, schema: { type: integer } }
-        x-keiyaku-paginate: #{hint}
-        responses: { "200": { description: ok } }
-      YAML
-    end
-
-    # The alternative to refusing is a client that pages forever.
-    it "is refused when it names a parameter the operation does not have" do
-      emitter = generate(paginated("{ by: offset, param: skip, size: limit }"))
-      expect(emitter.refusals.first.reason).to include(%(param "skip" is not a query parameter))
-    end
-
-    it "is refused when the strategy is one the runtime does not implement" do
-      emitter = generate(paginated("{ by: seek, param: limit }"))
-      expect(emitter.refusals.first.reason).to include("unknown strategy")
-    end
-
-    # The hint is written for this generator rather than taken from the
-    # document's vocabulary, so a key it does not know is a typo — and a typo
-    # in `per` is a walk that reads the page size off nothing.
-    it "is refused when it carries a key that means nothing" do
-      emitter = generate(paginated("{ by: offset, param: limit, pre: 100 }"))
-      expect(emitter.refusals.first.reason).to include(%(unknown key "pre"))
-    end
-
-    it "is accepted when it names parameters the operation has" do
-      emitter = generate(paginated("{ by: offset, param: limit, size: limit }"))
-      expect(emitter.refusals).to be_empty
-    end
-  end
-
   # `deepObject` has one row in the specification's table of styles, and that
   # row is an object, exploded. Everything else a document can write under the
   # name is a rendering the specification does not describe.

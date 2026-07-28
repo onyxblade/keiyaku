@@ -41,18 +41,6 @@ module Keiyaku
       %w[boolean] => ":bool"
     }.freeze
 
-    # OpenAPI describes no pagination, so there is nothing to detect: guessing
-    # from parameter names called `page` or `cursor` would produce a client
-    # that loops wrongly and silently. The document has to say so itself, in
-    # an x-keiyaku-paginate extension on the operation.
-    PAGINATION = %w[offset page cursor link].freeze
-
-    # The keys `x-keiyaku-paginate` has. A hint is written for this generator
-    # rather than taken from the document's own vocabulary, so a key that is
-    # not one of these is a typo — and a typo in `per` or `items` is a client
-    # that walks wrongly and says nothing about it.
-    PAGINATION_KEYS = %w[by param size per from items next].freeze
-
     attr_reader :refusals, :notes
 
     def initialize(path, namespace:)
@@ -632,11 +620,6 @@ module Keiyaku
         required << param["name"] if param["required"] && param["in"] != "path"
       end
 
-      hint = op["x-keiyaku-paginate"]
-      if hint && (problem = pagination_problem(hint, query))
-        raise Impossible, "x-keiyaku-paginate: #{problem}"
-      end
-
       body = form = multipart = content_type = nil
       # A request body is optional unless the document says otherwise, which is
       # the specification's default and not this generator's leniency. The
@@ -701,7 +684,7 @@ module Keiyaku
       into = success.empty? ? nil : success
 
       { name:, verb:, template:, query:, deep_object:, header:, exploded:, required:, types:, body:, form:, multipart:,
-        content_type:, body_required:, into:, errors:, hint:, paginate: (hint && hash_source(hint)),
+        content_type:, body_required:, into:, errors:,
         security: @security.source_for(name, op), summary: op["summary"], deps: }
     end
 
@@ -803,32 +786,6 @@ module Keiyaku
       kind = Array(schema["type"]) - ["null"]
 
       kind == ["object"] || (kind.empty? && schema.key?("properties"))
-    end
-
-    # A hint that names a parameter the operation does not have would produce a
-    # client that pages forever, so it is refused like any other construct that
-    # cannot be honoured.
-    def pagination_problem(hint, names)
-      by = hint["by"].to_s
-
-      if !PAGINATION.include?(by)
-        "unknown strategy #{hint["by"].inspect}, expected one of #{PAGINATION.join(", ")}"
-      elsif (unknown = hint.keys - PAGINATION_KEYS).any?
-        "unknown key #{unknown.first.inspect}, expected one of #{PAGINATION_KEYS.join(", ")}"
-      elsif (wrong = %w[param size].find { hint[_1] && !names.include?(hint[_1]) })
-        "#{wrong} #{hint[wrong].inspect} is not a query parameter of this operation"
-      elsif by != "link" && hint["param"].nil?
-        "by: #{by} needs the name of the parameter to advance"
-      elsif by == "cursor" && hint["next"].nil?
-        "by: cursor needs the response field the next cursor comes from"
-      end
-    end
-
-    # The keys are labels rather than anything the document chose: a hint that
-    # reaches this has been checked against PAGINATION_KEYS, and the strategy
-    # against PAGINATION. Everything else is the document's and is inspected.
-    def hash_source(hint)
-      "{ #{hint.map { |key, value| "#{key}: #{key == "by" ? ":#{value}" : value.inspect}" }.join(", ")} }"
     end
 
     # Whether a text/* body is the string it looks like. A document declaring
@@ -978,7 +935,6 @@ module Keiyaku
         args << "body_required: true" if (op[:body] || op[:form] || op[:multipart]) && op[:body_required]
         args << "into: #{into_source(op[:into])}" if op[:into]
         args << "errors: { #{op[:errors].map { |status, type| "#{status} => #{type}" }.join(", ")} }" if op[:errors].any?
-        args << "paginate: #{op[:paginate]}" if op[:paginate]
         args << "security: #{op[:security]}" if op[:security]
 
         "    #{op[:verb].ljust(6)} #{args.join(", ")}"
