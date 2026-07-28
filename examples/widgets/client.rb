@@ -14,6 +14,7 @@ module Widgets
     post   :upload_photo, "/widgets/{id}/photo", multipart: UploadPhotoBody, body_required: true, into: Widget
     post   :import_widgets, "/widgets/import", query: %i[until], body: :text, content_type: "text/csv", body_required: true, into: Keiyaku::ByStatus[200 => [Widget], 202 => ImportQueued]
     post   :add_note, "/widgets/{id}/notes", query: %i[locale], required: %i[locale], body: Note, content_type: "application/vnd.widgets.v2+json", into: Note, errors: { "4XX" => Problem }
+    put    :replace_labels, "/widgets/{id}/labels", header: { "X-Tags" => :x_tags, "X-Context" => :x_context }, explode: %w[X-Context], body: { String => String }, body_required: true, into: { String => String }, errors: { 409 => [Problem] }
     get    :search_widgets, "/widgets/search", query: %i[q cursor filter], deep_object: %w[filter], required: %i[q], into: SearchWidgetsResult, paginate: { by: :cursor, param: "cursor", next: "next_cursor", items: "items" }
     get    :widget_feed, "/widgets/feed", into: [Widget], paginate: { by: :link }
     get    :list_events, "/widgets/{id}/events", query: %i[limit offset], into: [Event], paginate: { by: :offset, param: "offset", size: "limit", per: 2 }

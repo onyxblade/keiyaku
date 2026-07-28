@@ -120,3 +120,23 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
   document did not name. Several at the top level is a note saying which was
   taken, and a URL with variables in it is treated as no address at all rather
   than sent to a host called `{region}`
+- an error body is cast to whatever type the document declared for that status
+  rather than only to the ones that are a model. An error described as a list
+  of problems arrives as that list; one described as a map was calling
+  `Hash#cast`, and one the document left without a shape was calling
+  `Symbol#cast` — a `NoMethodError` in place of the error the server sent,
+  taking the status and the body with it, and matching no `rescue` the caller
+  could have written. A body that does not fit the type it was declared with
+  is kept as it arrived, since what answers a 502 is usually written by a
+  proxy that never read the document
+- a path or header parameter that is not a scalar goes out in the `simple`
+  style the specification gives it: `1,2` for a list, and `role,admin` — or
+  `role=admin` where the document wrote `explode`, which the operation now
+  carries — for an object. It used to be whatever `#to_s` made of the value,
+  so a list reached the server as a string with brackets and a space in it and
+  an object as a Ruby Hash literal, neither of which anything reads back
+- `Retry-After` is read in both the forms RFC 7231 writes it: the seconds to
+  wait, and the date the wait is over. The date raised an `ArgumentError` from
+  the middle of the retry — out of the call the header was asking to have made
+  again — and one already past now means go now rather than a negative sleep.
+  A header in neither form is no instruction and leaves the wait to the backoff

@@ -19,6 +19,56 @@ RSpec.describe "failure" do
       end
   end
 
+  # An error the document typed as a list of problems is a list of them. Only
+  # a model used to be cast, so every other type an errors table can hold —
+  # a list, a map, an untyped body — either arrived undecoded or raised a
+  # NoMethodError in place of the error the server had actually sent.
+  it "casts an error body the document typed as a list" do
+    expect { widgets.replace_labels(2, { "env" => "prod" }) }.to raise_error(Keiyaku::ClientError) do |error|
+      expect(error.parsed).to match [an_instance_of(Widgets::Problem), an_instance_of(Widgets::Problem)]
+      expect(error.parsed.map(&:detail)).to eq ["env is reserved", "team is unknown"]
+    end
+  end
+
+  # What answers a 502 is usually written by a proxy that never read the
+  # document, and the status is what the caller is rescuing for. Raising a
+  # CastError here would take that away along with the body to diagnose it
+  # from, so a body that does not fit its declared type arrives as it came.
+  it "keeps an error body that does not fit the type the document declared" do
+    expect { widgets.replace_labels(3, { "env" => "prod" }) }.to raise_error(Keiyaku::ClientError) do |error|
+      expect(error.status).to eq 409
+      expect(error.parsed).to eq({ "detail" => "not the list the document promised" })
+    end
+  end
+
+  # The rest of what a generator puts in an errors table, which no document
+  # here declares: a map of problems, and a response the document described
+  # without giving it a shape.
+  describe "an error type that is not a model" do
+    def answering(type, payload)
+      responder = Class.new do
+        define_method(:call) { |*| [409, { "Content-Type" => "application/json" }, JSON.generate(payload)] }
+      end.new
+
+      client = Class.new(Keiyaku::Client) do
+        server "https://example.test"
+        get :go, "/go", errors: { 409 => type }
+      end
+
+      client.new(adapter: responder).go
+    end
+
+    it "casts one typed as a map" do
+      expect { answering({ String => Widgets::Problem }, { "env" => { "detail" => "reserved" } }) }
+        .to raise_error(Keiyaku::ClientError) { expect(_1.parsed["env"].detail).to eq "reserved" }
+    end
+
+    it "leaves one the document never gave a shape alone" do
+      expect { answering(:any, { "detail" => "whatever this is" }) }
+        .to raise_error(Keiyaku::ClientError) { expect(_1.parsed).to eq({ "detail" => "whatever this is" }) }
+    end
+  end
+
   # A document is entitled to describe its client errors by range rather than
   # one code at a time, and "4XX" is then the entry a 422 is answered by.
   it "casts an error body the document described as a range" do
@@ -68,6 +118,42 @@ RSpec.describe "failure" do
   # failure is a named one at the call rather than a NoMethodError.
   it "raises Unsupported for an operation it refused to build" do
     expect { widgets.list_widgets }.to raise_error(Keiyaku::Unsupported, /deepObject/)
+  end
+
+  # RFC 7231 writes Retry-After two ways, and reading only the seconds turns
+  # the other into an ArgumentError raised from the middle of a retry — out of
+  # the call the header was asking to have made again.
+  describe "Retry-After" do
+    def rate_limited(value)
+      calls = 0
+      responder = Class.new do
+        define_method(:call) do |*|
+          calls += 1
+          [429, { "Content-Type" => "application/json", "Retry-After" => value }, "{}"]
+        end
+      end.new
+
+      client = Class.new(Keiyaku::Client) do
+        server "https://example.test"
+        get :go, "/go"
+      end
+
+      expect { client.new(adapter: responder, retries: 1).go }.to raise_error(Keiyaku::ClientError)
+      calls
+    end
+
+    it "waits the seconds a server asks for" do
+      expect(rate_limited("0")).to eq 2
+    end
+
+    # A date already past says to go now, so this one also says the date was
+    # read rather than fallen back on: the backoff would have been a second at
+    # the very least.
+    it "reads the date form too, rather than raising on it" do
+      started = Time.now
+      expect(rate_limited((Time.now - 5).httpdate)).to eq 2
+      expect(Time.now - started).to be < 0.5
+    end
   end
 
   # An application rescues what it was told to rescue. If that is whichever

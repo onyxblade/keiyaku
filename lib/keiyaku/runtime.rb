@@ -105,7 +105,14 @@ module Keiyaku
 
     case type
     when Array  then Array(value).each_with_index.map { |v, i| coerce(type.first, v, "#{path}[#{i}]") }
-    when Hash   then value.to_h { |k, v| [k, coerce(type.values.first, v, "#{path}.#{k}")] }
+    when Hash
+      # A map's keys are the document's own, whatever they turn out to be, and
+      # only the values have a declared type. Something that is not an object
+      # cannot be read as one, and saying so here is what keeps a bare `to_h`
+      # from raising a NoMethodError with none of the path in it.
+      raise CastError, "#{path}: expected an object, got #{value.class}" unless value.is_a?(Hash)
+
+      value.to_h { |k, v| [k, coerce(type.values.first, v, "#{path}.#{k}")] }
     when :any   then value
     when :bool  then !!value
     when Symbol then value
@@ -438,10 +445,32 @@ module Keiyaku
       end
     end
 
-    def path(value)
-      URI.encode_www_form_component(
-        value.is_a?(Array) ? value.map { stringify(_1) }.join(",") : stringify(value)
-      )
+    def path(name, value, explode: false) = URI.encode_www_form_component(simple(name, value, explode:))
+
+    # OpenAPI's `simple` style, which is what a path or a header parameter is
+    # written in unless the document said otherwise: an array is its elements
+    # separated by commas, and an object is its keys and values in that same
+    # flat list — or `key=value` pairs where `explode` said so, which is the
+    # one part of this a value cannot be asked and the operation has to carry.
+    #
+    # What it exists to keep off the wire is Ruby's own #to_s: `[1, 2]` on a
+    # header reaches a server as a string with brackets and a space in it, and
+    # nothing on the other side reads that back as two values.
+    def simple(name, value, explode: false)
+      case (value = Keiyaku.dump(value))
+      when Array then value.map { simple_part(name, _1) }.join(",")
+      when Hash  then value.map { |key, inner| "#{key}#{explode ? "=" : ","}#{simple_part(name, inner)}" }.join(",")
+      else stringify(value)
+      end
+    end
+
+    # The style's row in the specification stops where deepObject's does: it
+    # gives no spelling for an array or an object inside one, so that is
+    # refused rather than sent as whatever #to_s makes of it.
+    def simple_part(name, value)
+      return stringify(value) unless value.is_a?(Array) || value.is_a?(Hash)
+
+      raise Error, "#{name} contains #{value.class}; OpenAPI does not say how a simple parameter nests"
     end
 
     # Build a multipart/form-data body. An array property becomes one part per
@@ -574,9 +603,14 @@ module Keiyaku
       #
       # `items:` names the field holding the page's contents when the response
       # is an envelope; without it the response is the array itself.
-      def operation(verb, name, template, query: [], deep_object: [], header: {}, required: [], body: nil, form: nil,
-                    multipart: nil, content_type: nil, body_required: false, into: nil, errors: {},
-                    security: :inherit, paginate: nil)
+      #
+      # `explode:` names the path and header parameters the document wrote
+      # `explode` on, which is the one thing that cannot be read off the value
+      # itself: an object goes out as `role=admin,name=alex` where it was said
+      # and as `role,admin,name,alex` where it was not.
+      def operation(verb, name, template, query: [], deep_object: [], header: {}, explode: [], required: [],
+                    body: nil, form: nil, multipart: nil, content_type: nil, body_required: false, into: nil,
+                    errors: {}, security: :inherit, paginate: nil)
         path_params = template.scan(/\{(\w+)\}/).flatten
         # A name in `required:` that belongs to no parameter of this operation
         # would quietly leave a required one optional, which is a 400 at the
@@ -597,7 +631,7 @@ module Keiyaku
           # requirement; every other spelling is a requirement of its own.
           security: (security == :inherit ? nil : requirement(security)),
           path: path_params, query: query_params, header: header_params,
-          deep_object: deep_object.map(&:to_s)
+          deep_object: deep_object.map(&:to_s), explode: explode.map(&:to_s)
         }
 
         positional = path_params.map { Keiyaku.snake(_1) }
@@ -713,7 +747,7 @@ module Keiyaku
       credentials = []
       __authenticate(name, op, headers, credentials)
 
-      uri = URI.parse(@base_url + op[:template].gsub(/\{(\w+)\}/) { Serialize.path(path.fetch($1)) })
+      uri = URI.parse(@base_url + __path(op, path))
 
       if url
         uri = __follow(name, uri, url)
@@ -726,7 +760,11 @@ module Keiyaku
       end
 
       # After the credentials, so an explicit parameter of the same name wins.
-      header.each { |k, v| headers[k] = Serialize.stringify(v) unless UNSET.equal?(v) }
+      header.each do |param, value|
+        next if UNSET.equal?(value)
+
+        headers[param] = Serialize.simple(param, value, explode: op[:explode].include?(param))
+      end
 
       payload =
         if UNSET.equal?(body)
@@ -755,7 +793,7 @@ module Keiyaku
 
       unless (200..299).cover?(status)
         error_type = Keiyaku.for_status(op[:errors], status)
-        parsed = error_type.cast(parsed, "error") if error_type && parsed.is_a?(Hash)
+        parsed = __cast_error(error_type, parsed) if error_type
         klass = status >= 500 ? ServerError : ClientError
         raise klass.new(status:, headers: response_headers, body: raw, parsed:)
       end
@@ -763,6 +801,29 @@ module Keiyaku
       into = op[:into]
       into = into[status] if into.is_a?(ByStatus)
       [into ? Keiyaku.coerce(into, parsed, name.to_s) : parsed, response_headers]
+    end
+
+    # The template with each of its parameters written into it, in the same
+    # `simple` style a header is written in.
+    def __path(op, path)
+      op[:template].gsub(/\{(\w+)\}/) { Serialize.path($1, path.fetch($1), explode: op[:explode].include?($1)) }
+    end
+
+    # The error body under the type the document declared for that status —
+    # every type, and not only the ones that are a model: an error described
+    # as a list of problems is a list of them, and one described as a map was
+    # calling Hash#cast, which is a NoMethodError in place of the error the
+    # server actually sent.
+    #
+    # A body that does not fit the type it was declared with is left as it
+    # arrived. That is ordinary on this side of the split — what answers a 502
+    # is usually written by a proxy that never read the document — and the
+    # status is what the caller is rescuing for. Raising a CastError here
+    # would take that away, along with the body it would be diagnosed from.
+    def __cast_error(type, parsed)
+      Keiyaku.coerce(type, parsed, "error")
+    rescue CastError
+      parsed
     end
 
     # Walk a paginated operation, yielding items rather than pages: the page is
@@ -865,8 +926,28 @@ module Keiyaku
 
         attempt += 1
         # Retry-After is an instruction; obey it. The fallback is ours.
-        sleep(Float(response_headers["retry-after"] || __backoff(attempt)))
+        sleep(__retry_after(response_headers["retry-after"]) || __backoff(attempt))
       end
+    end
+
+    # RFC 7231 §7.1.3 writes Retry-After two ways: the seconds to wait, or the
+    # date at which the wait is over. Both are ordinary, and reading only the
+    # first turns the second into an ArgumentError raised from the middle of a
+    # retry — out of a call the header was asking to have made again.
+    #
+    # A header in neither form is no instruction at all and leaves the wait to
+    # the backoff. A date already past is one, and says to go now.
+    def __retry_after(value)
+      return if value.nil?
+
+      seconds = Float(value, exception: false) || __seconds_until(value)
+      seconds && [seconds, 0.0].max
+    end
+
+    def __seconds_until(date)
+      Time.httpdate(date) - Time.now
+    rescue ArgumentError
+      nil
     end
 
     # Half the wait fixed, half random, so a fleet that trips the same rate

@@ -111,6 +111,49 @@ RSpec.describe "building a request" do
       expect(sent.headers["api_key"]).to eq "override"
     end
 
+    # A header is written in `simple` style, where a list is its elements
+    # separated by commas. Ruby's #to_s would put brackets and a space on the
+    # wire instead, which no server reads back as two values.
+    it "sends a list header the way the style spells one" do
+      widgets.replace_labels(1, { "env" => "prod" }, x_tags: %w[fragile heavy])
+      expect(sent.headers["x-tags"]).to eq "fragile,heavy"
+    end
+
+    # The one thing about an object that cannot be read off the value: the
+    # same Hash is `role=admin` where the document wrote `explode` and
+    # `role,admin` where it did not, so the operation has to carry which.
+    it "sends an object header the way the document said to explode it" do
+      widgets.replace_labels(1, { "env" => "prod" }, x_context: { "team" => "core", "region" => "eu" })
+      expect(sent.headers["x-context"]).to eq "team=core,region=eu"
+    end
+
+    it "leaves a header parameter out when it is not given" do
+      widgets.replace_labels(1, { "env" => "prod" })
+      expect(sent.headers).not_to include("x-tags", "x-context")
+    end
+
+    # A path parameter is written in that same style, and no document here
+    # types one as anything but a scalar. The separator is percent-encoded
+    # along with the rest of the segment, as it already was for a list.
+    it "sends a path parameter that is not a scalar in the simple style" do
+      targets = []
+      recorder = Class.new do
+        define_method(:call) do |_verb, uri, *|
+          targets << uri.path.split("/").last
+          [200, {}, nil]
+        end
+      end.new
+
+      client = Class.new(Keiyaku::Client) do
+        server "https://example.test"
+        get :go, "/things/{key}"
+      end.new(adapter: recorder)
+
+      client.go([3, 4])
+      client.go({ "role" => "admin", "name" => "alex" })
+      expect(targets).to eq ["3%2C4", "role%2Cadmin%2Cname%2Calex"]
+    end
+
     # `def import(until: nil)` is a method Ruby will define, and `until` in
     # its body is the start of a loop rather than the argument. Renaming it
     # would send a parameter the document never described.

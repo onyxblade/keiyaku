@@ -591,7 +591,7 @@ module Keiyaku
 
       deps = []
       params = parameters(op, path_item)
-      query, deep_object, header, required, types = [], [], {}, [], {}
+      query, deep_object, header, exploded, required, types = [], [], {}, [], [], {}
 
       params.each do |param|
         style = param["style"] || (param["in"] == "query" ? "form" : "simple")
@@ -601,6 +601,10 @@ module Keiyaku
         case param["in"]
         when "path"
           raise Impossible, "path parameter #{param["name"]} uses style=#{style}" unless style == "simple"
+
+          # Same style as a header, and the same one thing about it that the
+          # value cannot be asked.
+          exploded << param["name"] if explode
         when "query"
           if style == "deepObject"
             check_deep_object(param)
@@ -613,6 +617,10 @@ module Keiyaku
           query << param["name"]
         when "header"
           header[param["name"]] = Names.parameter(param["name"])
+          # A header is written in `simple` style and nothing else, so the
+          # only thing left to carry is `explode`, which decides how an object
+          # is spelled and cannot be read back off the value at the call.
+          exploded << param["name"] if explode
         else
           raise Impossible, "#{param["in"]} parameters are not supported"
         end
@@ -692,7 +700,7 @@ module Keiyaku
       success, errors = responses(op, name, deps)
       into = success.empty? ? nil : success
 
-      { name:, verb:, template:, query:, deep_object:, header:, required:, types:, body:, form:, multipart:,
+      { name:, verb:, template:, query:, deep_object:, header:, exploded:, required:, types:, body:, form:, multipart:,
         content_type:, body_required:, into:, errors:, hint:, paginate: (hint && hash_source(hint)),
         security: @security.source_for(name, op), summary: op["summary"], deps: }
     end
@@ -961,6 +969,7 @@ module Keiyaku
         args << "query: #{symbol_list(op[:query])}" if op[:query].any?
         args << "deep_object: #{string_list(op[:deep_object])}" if op[:deep_object].any?
         args << "header: { #{op[:header].map { |json, ruby| "#{json.inspect} => :#{ruby}" }.join(", ")} }" if op[:header].any?
+        args << "explode: #{string_list(op[:exploded])}" if op[:exploded].any?
         args << "required: #{symbol_list(op[:required])}" if op[:required].any?
         args << "body: #{op[:body]}" if op[:body]
         args << "form: #{op[:form]}" if op[:form]

@@ -142,6 +142,34 @@ RSpec.describe Keiyaku::Emitter do
     end
   end
 
+  # A path or header parameter is written in `simple` style, where an object
+  # has two spellings and `explode` is the whole of what tells them apart. The
+  # value at the call site cannot be asked which, so the operation carries it.
+  describe "explode on a simple parameter" do
+    def styled(param)
+      document(<<~YAML)
+        operationId: listThings
+        parameters:
+          - { name: X-Context, in: header, #{param} }
+        responses: { "200": { description: ok } }
+      YAML
+    end
+
+    it "declares the parameters the document wrote it on" do
+      generate(styled("explode: true, schema: { type: object }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb"))).to include(%(explode: %w[X-Context]))
+      end
+    end
+
+    # `simple` defaults it to false, so an operation with nothing exploded
+    # says nothing rather than carrying an empty list.
+    it "says nothing where the document did not write it" do
+      generate(styled("schema: { type: object }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb"))).not_to include("explode:")
+      end
+    end
+  end
+
   # Whether the emitted source parses and runs is not something reading it can
   # settle, so this loads it. The schema is the shape that used to fail: a
   # DIDComm message, whose properties collide with the model's own options.

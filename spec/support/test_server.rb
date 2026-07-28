@@ -105,6 +105,14 @@ module TestServer
                 "locale" => query["locale"] }]
       in ["POST", "/v1/widgets/2/notes"] then [422, { "detail" => "that locale is not supported" }]
 
+      # Labels replaced, or the problems with them — which this document types
+      # as a list. The third answers with one object instead, the way a server
+      # that has stopped matching its own document does.
+      in ["PUT", "/v1/widgets/1/labels"] then [200, JSON.parse(request.body)]
+      in ["PUT", "/v1/widgets/2/labels"] then
+        [409, [{ "detail" => "env is reserved" }, { "detail" => "team is unknown" }]]
+      in ["PUT", "/v1/widgets/3/labels"] then [409, { "detail" => "not the list the document promised" }]
+
       # Answers with the widgets, or with a job when there are too many to do
       # now: two statuses, two types, and the client has to tell them apart.
       in ["POST", "/v1/widgets/import"] then
