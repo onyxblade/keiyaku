@@ -9,8 +9,6 @@ module Widgets
     def self.cast: (untyped, ?String) -> Widget
     def self.new: (id: Integer, created_at: Time, ?labels: Hash[String, String]?, ?retired: bool?) -> Widget
     def with: (?id: Integer, ?created_at: Time, ?labels: Hash[String, String]?, ?retired: bool?) -> Widget
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Integer | Time | Hash[String, String] | bool | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class Problem < ::Keiyaku::Model
@@ -20,8 +18,6 @@ module Widgets
     def self.cast: (untyped, ?String) -> Problem
     def self.new: (detail: String, ?trace_id: String?, ?source: untyped?) -> Problem
     def with: (?detail: String, ?trace_id: String?, ?source: untyped?) -> Problem
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, untyped]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class WidgetCreated < ::Keiyaku::Model
@@ -30,8 +26,6 @@ module Widgets
     def self.cast: (untyped, ?String) -> WidgetCreated
     def self.new: (kind: String, widget: Widget) -> WidgetCreated
     def with: (?kind: String, ?widget: Widget) -> WidgetCreated
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | Widget | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class WidgetRetired < ::Keiyaku::Model
@@ -41,8 +35,6 @@ module Widgets
     def self.cast: (untyped, ?String) -> WidgetRetired
     def self.new: (kind: String, id: Integer, ?reason: String?) -> WidgetRetired
     def with: (?kind: String, ?id: Integer, ?reason: String?) -> WidgetRetired
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | Integer | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class ImportQueued < ::Keiyaku::Model
@@ -50,8 +42,6 @@ module Widgets
     def self.cast: (untyped, ?String) -> ImportQueued
     def self.new: (job_id: String) -> ImportQueued
     def with: (?job_id: String) -> ImportQueued
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   type event = WidgetCreated | WidgetRetired
@@ -64,8 +54,6 @@ module Widgets
     def self.cast: (untyped, ?String) -> UploadPhotoBody
     def self.new: (file: Keiyaku::Upload | IO, ?caption: String?, ?tags: Array[String]?) -> UploadPhotoBody
     def with: (?file: Keiyaku::Upload | IO, ?caption: String?, ?tags: Array[String]?) -> UploadPhotoBody
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Keiyaku::Upload | IO | String | Array[String] | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class SearchWidgetsFilter < ::Keiyaku::Model
@@ -74,8 +62,6 @@ module Widgets
     def self.cast: (untyped, ?String) -> SearchWidgetsFilter
     def self.new: (?status: String?, ?since: Time?) -> SearchWidgetsFilter
     def with: (?status: String?, ?since: Time?) -> SearchWidgetsFilter
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | Time | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class SearchWidgetsResult < ::Keiyaku::Model
@@ -84,8 +70,6 @@ module Widgets
     def self.cast: (untyped, ?String) -> SearchWidgetsResult
     def self.new: (?items: Array[Widget]?, ?next_cursor: String?) -> SearchWidgetsResult
     def with: (?items: Array[Widget]?, ?next_cursor: String?) -> SearchWidgetsResult
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Array[Widget] | String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class Client < Keiyaku::Client

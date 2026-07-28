@@ -139,35 +139,29 @@ module Keiyaku
 
         readers = bare.map { |field, type| "    attr_reader #{field}: #{declared.(field, type)}" }
 
-        # A model open to properties the document did not name reads them
-        # through the same `[]`, and there is nothing to say about their names
-        # — so the overload that takes any String comes last, after the ones
-        # that know what they are returning.
-        overloads = quoted.map { |field, type| "(#{field.inspect}) -> #{declared.(field, type)}" }
-        overloads << "(String | Symbol) -> untyped" if model.open
-        unless overloads.empty?
-          readers << "    def []: #{overloads.join("\n           | ")}"
+        # Only the names that cannot be an attr_reader are worth an overload:
+        # `[]` is already declared on the base class, and a subclass's `def`
+        # replaces that rather than adding to it, so anything left out here is
+        # left out of the type entirely. Hence the trailing overload — without
+        # it, typing `rollup["+1"]` would cost `rollup[:total]`, which the same
+        # method reads perfectly well.
+        unless quoted.empty?
+          overloads = quoted.map { |field, type| "(#{field.inspect}) -> #{declared.(field, type)}" }
+          readers << "    def []: #{(overloads + ["(String | Symbol) -> untyped"]).join("\n           | ")}"
         end
 
+        # `to_json_hash` and `deconstruct_keys` are not emitted: the first is
+        # word for word what the base class declares, and the second would be
+        # a union of every type in the model, which a pattern match binding one
+        # field is not helped by. What is emitted is what is more precise here
+        # than it can be there.
         <<~RBS.chomp
             class #{const} < ::Keiyaku::Model
           #{readers.join("\n")}
               def self.cast: (untyped, ?String) -> #{const}
           #{constructors(const, model)}
-              def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, #{field_values(model)}]
-              def to_json_hash: () -> Hash[String, untyped]
             end
         RBS
-      end
-
-      # What a pattern match binds. Only a subset of the fields comes back, so
-      # a record type would be a lie; the union of what any of them holds is
-      # still narrower than the untyped the base class has to declare.
-      def field_values(model)
-        types = model.fields.values.map { type_for(_1) }.uniq
-        return "untyped" if types.empty? || types.include?("untyped")
-
-        (types + ["nil"]).join(" | ")
       end
 
       # `new` and `with`, spelled out. Inherited from Keiyaku::Model they are

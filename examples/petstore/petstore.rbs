@@ -11,8 +11,6 @@ module Petstore
     def self.cast: (untyped, ?String) -> Order
     def self.new: (?id: Integer?, ?pet_id: Integer?, ?quantity: Integer?, ?ship_date: Time?, ?status: String?, ?complete: bool?) -> Order
     def with: (?id: Integer?, ?pet_id: Integer?, ?quantity: Integer?, ?ship_date: Time?, ?status: String?, ?complete: bool?) -> Order
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Integer | Time | String | bool | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class Category < ::Keiyaku::Model
@@ -21,8 +19,6 @@ module Petstore
     def self.cast: (untyped, ?String) -> Category
     def self.new: (?id: Integer?, ?name: String?) -> Category
     def with: (?id: Integer?, ?name: String?) -> Category
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Integer | String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class User < ::Keiyaku::Model
@@ -37,8 +33,6 @@ module Petstore
     def self.cast: (untyped, ?String) -> User
     def self.new: (?id: Integer?, ?username: String?, ?first_name: String?, ?last_name: String?, ?email: String?, ?password: String?, ?phone: String?, ?user_status: Integer?) -> User
     def with: (?id: Integer?, ?username: String?, ?first_name: String?, ?last_name: String?, ?email: String?, ?password: String?, ?phone: String?, ?user_status: Integer?) -> User
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Integer | String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class Tag < ::Keiyaku::Model
@@ -47,8 +41,6 @@ module Petstore
     def self.cast: (untyped, ?String) -> Tag
     def self.new: (?id: Integer?, ?name: String?) -> Tag
     def with: (?id: Integer?, ?name: String?) -> Tag
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Integer | String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class Pet < ::Keiyaku::Model
@@ -61,8 +53,6 @@ module Petstore
     def self.cast: (untyped, ?String) -> Pet
     def self.new: (name: String, photo_urls: Array[String], ?id: Integer?, ?category: Category?, ?tags: Array[Tag]?, ?status: String?) -> Pet
     def with: (?id: Integer?, ?name: String, ?category: Category?, ?photo_urls: Array[String], ?tags: Array[Tag]?, ?status: String?) -> Pet
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Integer | String | Category | Array[String] | Array[Tag] | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class ApiResponse < ::Keiyaku::Model
@@ -72,8 +62,6 @@ module Petstore
     def self.cast: (untyped, ?String) -> ApiResponse
     def self.new: (?code: Integer?, ?type: String?, ?message: String?) -> ApiResponse
     def with: (?code: Integer?, ?type: String?, ?message: String?) -> ApiResponse
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Integer | String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class Client < Keiyaku::Client

@@ -274,12 +274,13 @@ RSpec.describe Keiyaku::Emitter do
       expect(source).to include("ListThingsResult = Keiyaku.model({ id: String })")
     end
 
-    # The reader is `[]`, which every model has; a reader of its own would have
-    # cost the name table a word that real documents use as a property.
-    it "types the extra properties on [] rather than inventing a reader" do
+    # The reader is `[]`, which every model has: it is on the base class, and
+    # says the same thing there as it would say here. A reader of its own would
+    # have cost the name table a word real documents use as a property.
+    it "leaves the extra properties to the [] every model already has" do
       generate(returning("type: object\nadditionalProperties: true\nproperties:\n  id: { type: string }")) do |_, dir|
         rbs = File.read(Dir[File.join(dir, "*.rbs")].first)
-        expect(rbs).to include("def []: (String | Symbol) -> untyped")
+        expect(rbs).not_to include("def []")
         expect(rbs).to include("def self.new: (?id: String?, **untyped) -> ListThingsResult")
       end
     end

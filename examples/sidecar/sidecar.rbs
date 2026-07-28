@@ -11,8 +11,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> VerificationMethod
     def self.new: (id: String, type: String, controller: String, ?public_key_jwk: Hash[String, untyped]?, ?public_key_multibase: String?, ?public_key_base58: String?) -> VerificationMethod
     def with: (?id: String, ?type: String, ?controller: String, ?public_key_jwk: Hash[String, untyped]?, ?public_key_multibase: String?, ?public_key_base58: String?) -> VerificationMethod
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | Hash[String, untyped] | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class Service < ::Keiyaku::Model
@@ -22,8 +20,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> Service
     def self.new: (id: String, type: String, service_endpoint: untyped) -> Service
     def with: (?id: String, ?type: String, ?service_endpoint: untyped) -> Service
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, untyped]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class DIDDoc < ::Keiyaku::Model
@@ -35,8 +31,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> DIDDoc
     def self.new: (id: String, key_agreement: Array[String], authentication: Array[String], verification_method: Array[VerificationMethod], service: Array[Service]) -> DIDDoc
     def with: (?id: String, ?key_agreement: Array[String], ?authentication: Array[String], ?verification_method: Array[VerificationMethod], ?service: Array[Service]) -> DIDDoc
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | Array[String] | Array[VerificationMethod] | Array[Service] | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class Secret < ::Keiyaku::Model
@@ -48,8 +42,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> Secret
     def self.new: (id: String, type: String, ?private_key_jwk: Hash[String, untyped]?, ?private_key_multibase: String?, ?private_key_base58: String?) -> Secret
     def with: (?id: String, ?type: String, ?private_key_jwk: Hash[String, untyped]?, ?private_key_multibase: String?, ?private_key_base58: String?) -> Secret
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | Hash[String, untyped] | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class DIDResolutionResultDidResolutionMetadata < ::Keiyaku::Model
@@ -59,8 +51,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> DIDResolutionResultDidResolutionMetadata
     def self.new: (?content_type: String?, ?error: String?, ?message: String?) -> DIDResolutionResultDidResolutionMetadata
     def with: (?content_type: String?, ?error: String?, ?message: String?) -> DIDResolutionResultDidResolutionMetadata
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class DIDResolutionResult < ::Keiyaku::Model
@@ -70,8 +60,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> DIDResolutionResult
     def self.new: (did_document: untyped, did_document_metadata: Hash[String, untyped], did_resolution_metadata: DIDResolutionResultDidResolutionMetadata) -> DIDResolutionResult
     def with: (?did_document: untyped, ?did_document_metadata: Hash[String, untyped], ?did_resolution_metadata: DIDResolutionResultDidResolutionMetadata) -> DIDResolutionResult
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, untyped]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class Attachment < ::Keiyaku::Model
@@ -86,8 +74,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> Attachment
     def self.new: (data: untyped, ?id: String?, ?description: String?, ?filename: String?, ?media_type: String?, ?format: String?, ?lastmod_time: Float?, ?byte_count: Float?) -> Attachment
     def with: (?data: untyped, ?id: String?, ?description: String?, ?filename: String?, ?media_type: String?, ?format: String?, ?lastmod_time: Float?, ?byte_count: Float?) -> Attachment
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, untyped]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class Message < ::Keiyaku::Model
@@ -103,12 +89,9 @@ module Sidecar
     attr_reader expires_time: Float?
     attr_reader from_prior: String?
     attr_reader attachments: Array[Attachment]?
-    def []: (String | Symbol) -> untyped
     def self.cast: (untyped, ?String) -> Message
     def self.new: (id: String, typ: String, type: String, body: untyped, ?from: String?, ?to: Array[String]?, ?thid: String?, ?pthid: String?, ?created_time: Float?, ?expires_time: Float?, ?from_prior: String?, ?attachments: Array[Attachment]?, **untyped) -> Message
     def with: (?id: String, ?typ: String, ?type: String, ?body: untyped, ?from: String?, ?to: Array[String]?, ?thid: String?, ?pthid: String?, ?created_time: Float?, ?expires_time: Float?, ?from_prior: String?, ?attachments: Array[Attachment]?, **untyped) -> Message
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, untyped]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class ErrorResponse < ::Keiyaku::Model
@@ -117,8 +100,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> ErrorResponse
     def self.new: (error: String, message: String) -> ErrorResponse
     def with: (?error: String, ?message: String) -> ErrorResponse
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommPackEncryptedBodyOptions < ::Keiyaku::Model
@@ -131,8 +112,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommPackEncryptedBodyOptions
     def self.new: (?protect_sender: bool?, ?forward: bool?, ?forward_headers: Array[Array[untyped]]?, ?messaging_service: String?, ?enc_alg_auth: String?, ?enc_alg_anon: String?) -> PostDidcommPackEncryptedBodyOptions
     def with: (?protect_sender: bool?, ?forward: bool?, ?forward_headers: Array[Array[untyped]]?, ?messaging_service: String?, ?enc_alg_auth: String?, ?enc_alg_anon: String?) -> PostDidcommPackEncryptedBodyOptions
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, bool | Array[Array[untyped]] | String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommPackEncryptedBody < ::Keiyaku::Model
@@ -146,8 +125,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommPackEncryptedBody
     def self.new: (message: Message, to: String, ?from: String?, ?sign_by: String?, ?options: PostDidcommPackEncryptedBodyOptions?, ?did_docs: Array[DIDDoc]?, ?secrets: Array[Secret]?) -> PostDidcommPackEncryptedBody
     def with: (?message: Message, ?to: String, ?from: String?, ?sign_by: String?, ?options: PostDidcommPackEncryptedBodyOptions?, ?did_docs: Array[DIDDoc]?, ?secrets: Array[Secret]?) -> PostDidcommPackEncryptedBody
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Message | String | PostDidcommPackEncryptedBodyOptions | Array[DIDDoc] | Array[Secret] | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommPackEncryptedResultMetadataMessagingService < ::Keiyaku::Model
@@ -156,8 +133,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommPackEncryptedResultMetadataMessagingService
     def self.new: (id: String, service_endpoint: String) -> PostDidcommPackEncryptedResultMetadataMessagingService
     def with: (?id: String, ?service_endpoint: String) -> PostDidcommPackEncryptedResultMetadataMessagingService
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommPackEncryptedResultMetadata < ::Keiyaku::Model
@@ -168,8 +143,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommPackEncryptedResultMetadata
     def self.new: (to_kids: Array[String], ?messaging_service: PostDidcommPackEncryptedResultMetadataMessagingService?, ?from_kid: String?, ?sign_by_kid: String?) -> PostDidcommPackEncryptedResultMetadata
     def with: (?messaging_service: PostDidcommPackEncryptedResultMetadataMessagingService?, ?from_kid: String?, ?sign_by_kid: String?, ?to_kids: Array[String]) -> PostDidcommPackEncryptedResultMetadata
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, PostDidcommPackEncryptedResultMetadataMessagingService | String | Array[String] | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommPackEncryptedResult < ::Keiyaku::Model
@@ -179,8 +152,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommPackEncryptedResult
     def self.new: (packed_message: String, delivery_endpoint: String, metadata: PostDidcommPackEncryptedResultMetadata) -> PostDidcommPackEncryptedResult
     def with: (?packed_message: String, ?delivery_endpoint: String, ?metadata: PostDidcommPackEncryptedResultMetadata) -> PostDidcommPackEncryptedResult
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | PostDidcommPackEncryptedResultMetadata | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommPackSignedBody < ::Keiyaku::Model
@@ -191,8 +162,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommPackSignedBody
     def self.new: (message: Message, sign_by: String, ?did_docs: Array[DIDDoc]?, ?secrets: Array[Secret]?) -> PostDidcommPackSignedBody
     def with: (?message: Message, ?sign_by: String, ?did_docs: Array[DIDDoc]?, ?secrets: Array[Secret]?) -> PostDidcommPackSignedBody
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Message | String | Array[DIDDoc] | Array[Secret] | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommPackSignedResultMetadata < ::Keiyaku::Model
@@ -200,8 +169,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommPackSignedResultMetadata
     def self.new: (sign_by_kid: String) -> PostDidcommPackSignedResultMetadata
     def with: (?sign_by_kid: String) -> PostDidcommPackSignedResultMetadata
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommPackSignedResult < ::Keiyaku::Model
@@ -210,8 +177,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommPackSignedResult
     def self.new: (packed_message: String, metadata: PostDidcommPackSignedResultMetadata) -> PostDidcommPackSignedResult
     def with: (?packed_message: String, ?metadata: PostDidcommPackSignedResultMetadata) -> PostDidcommPackSignedResult
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | PostDidcommPackSignedResultMetadata | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommPackPlaintextBody < ::Keiyaku::Model
@@ -220,8 +185,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommPackPlaintextBody
     def self.new: (message: Message, ?did_docs: Array[DIDDoc]?) -> PostDidcommPackPlaintextBody
     def with: (?message: Message, ?did_docs: Array[DIDDoc]?) -> PostDidcommPackPlaintextBody
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Message | Array[DIDDoc] | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommPackPlaintextResult < ::Keiyaku::Model
@@ -229,8 +192,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommPackPlaintextResult
     def self.new: (packed_message: String) -> PostDidcommPackPlaintextResult
     def with: (?packed_message: String) -> PostDidcommPackPlaintextResult
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommUnpackBodyOptions < ::Keiyaku::Model
@@ -239,8 +200,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommUnpackBodyOptions
     def self.new: (?expect_decrypt_by_all_keys: bool?, ?unwrap_re_wrapping_forward: bool?) -> PostDidcommUnpackBodyOptions
     def with: (?expect_decrypt_by_all_keys: bool?, ?unwrap_re_wrapping_forward: bool?) -> PostDidcommUnpackBodyOptions
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, bool | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommUnpackBody < ::Keiyaku::Model
@@ -251,8 +210,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommUnpackBody
     def self.new: (message: String, ?options: PostDidcommUnpackBodyOptions?, ?did_docs: Array[DIDDoc]?, ?secrets: Array[Secret]?) -> PostDidcommUnpackBody
     def with: (?message: String, ?options: PostDidcommUnpackBodyOptions?, ?did_docs: Array[DIDDoc]?, ?secrets: Array[Secret]?) -> PostDidcommUnpackBody
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | PostDidcommUnpackBodyOptions | Array[DIDDoc] | Array[Secret] | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommUnpackResultMetadata < ::Keiyaku::Model
@@ -273,8 +230,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommUnpackResultMetadata
     def self.new: (encrypted: bool, authenticated: bool, non_repudiation: bool, anonymous_sender: bool, re_wrapped_in_forward: bool, ?encrypted_from_kid: String?, ?encrypted_to_kids: Array[String]?, ?sign_from: String?, ?from_prior_issuer_kid: String?, ?enc_alg_auth: String?, ?enc_alg_anon: String?, ?sign_alg: String?, ?signed_message: String?, ?from_prior: untyped?) -> PostDidcommUnpackResultMetadata
     def with: (?encrypted: bool, ?authenticated: bool, ?non_repudiation: bool, ?anonymous_sender: bool, ?re_wrapped_in_forward: bool, ?encrypted_from_kid: String?, ?encrypted_to_kids: Array[String]?, ?sign_from: String?, ?from_prior_issuer_kid: String?, ?enc_alg_auth: String?, ?enc_alg_anon: String?, ?sign_alg: String?, ?signed_message: String?, ?from_prior: untyped?) -> PostDidcommUnpackResultMetadata
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, untyped]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidcommUnpackResult < ::Keiyaku::Model
@@ -287,8 +242,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidcommUnpackResult
     def self.new: (message: Message, from: String, verified_from: String, sender_verified: bool, encrypted: bool, metadata: PostDidcommUnpackResultMetadata) -> PostDidcommUnpackResult
     def with: (?message: Message, ?from: String, ?verified_from: String, ?sender_verified: bool, ?encrypted: bool, ?metadata: PostDidcommUnpackResultMetadata) -> PostDidcommUnpackResult
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Message | String | bool | PostDidcommUnpackResultMetadata | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidResolveBody < ::Keiyaku::Model
@@ -296,8 +249,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidResolveBody
     def self.new: (did: String) -> PostDidResolveBody
     def with: (?did: String) -> PostDidResolveBody
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidDidcommDocBody < ::Keiyaku::Model
@@ -305,8 +256,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidDidcommDocBody
     def self.new: (did: String) -> PostDidDidcommDocBody
     def with: (?did: String) -> PostDidDidcommDocBody
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidDidcommDocResult < ::Keiyaku::Model
@@ -314,8 +263,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidDidcommDocResult
     def self.new: (did_doc: DIDDoc) -> PostDidDidcommDocResult
     def with: (?did_doc: DIDDoc) -> PostDidDidcommDocResult
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, DIDDoc | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidPeer4Body < ::Keiyaku::Model
@@ -323,8 +270,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidPeer4Body
     def self.new: (document: Hash[String, untyped]) -> PostDidPeer4Body
     def with: (?document: Hash[String, untyped]) -> PostDidPeer4Body
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Hash[String, untyped] | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidPeer4Result < ::Keiyaku::Model
@@ -336,8 +281,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidPeer4Result
     def self.new: (did: String, short_did: String, did_document: untyped, short_did_document: untyped, didcomm_did_doc: DIDDoc) -> PostDidPeer4Result
     def with: (?did: String, ?short_did: String, ?did_document: untyped, ?short_did_document: untyped, ?didcomm_did_doc: DIDDoc) -> PostDidPeer4Result
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, untyped]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidPeer4CreateBody < ::Keiyaku::Model
@@ -346,8 +289,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidPeer4CreateBody
     def self.new: (?keys: Array[String]?, ?service: String?) -> PostDidPeer4CreateBody
     def with: (?keys: Array[String]?, ?service: String?) -> PostDidPeer4CreateBody
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Array[String] | String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidPeer4CreateResult < ::Keiyaku::Model
@@ -361,8 +302,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidPeer4CreateResult
     def self.new: (did: String, short_did: String, input_document: Hash[String, untyped], did_document: untyped, short_did_document: untyped, didcomm_did_doc: DIDDoc, secrets: Array[Secret]) -> PostDidPeer4CreateResult
     def with: (?did: String, ?short_did: String, ?input_document: Hash[String, untyped], ?did_document: untyped, ?short_did_document: untyped, ?didcomm_did_doc: DIDDoc, ?secrets: Array[Secret]) -> PostDidPeer4CreateResult
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, untyped]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class PostDidPeer4ResolveShortBody < ::Keiyaku::Model
@@ -371,8 +310,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> PostDidPeer4ResolveShortBody
     def self.new: (document: Hash[String, untyped], ?did: String?) -> PostDidPeer4ResolveShortBody
     def with: (?document: Hash[String, untyped], ?did: String?) -> PostDidPeer4ResolveShortBody
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, Hash[String, untyped] | String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class GetHealthResult < ::Keiyaku::Model
@@ -380,8 +317,6 @@ module Sidecar
     def self.cast: (untyped, ?String) -> GetHealthResult
     def self.new: (status: String) -> GetHealthResult
     def with: (?status: String) -> GetHealthResult
-    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, String | nil]
-    def to_json_hash: () -> Hash[String, untyped]
   end
 
   class Client < Keiyaku::Client
