@@ -134,8 +134,8 @@ module Keiyaku
     def self.query: (Hash[String, untyped], ?deep: Array[String]) -> Array[[String, String]]
     def self.deep_object: (String name, untyped value) -> Array[[String, String]]
     def self.path: (String name, untyped value, ?explode: bool) -> String
-    def self.simple: (String name, untyped value, ?explode: bool) -> String
-    def self.simple_part: (String name, untyped value) -> String
+    def self.simple: (String name, untyped value, ?explode: bool, ?escape: bool) -> String
+    def self.simple_part: (String name, untyped value, ?escape: bool) -> String
     def self.stringify: (untyped) -> String
     def self.multipart: (Hash[String, untyped], String boundary) -> String
     def self.part: (String name, untyped value, String boundary) -> String

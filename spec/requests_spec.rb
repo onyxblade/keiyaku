@@ -133,8 +133,9 @@ RSpec.describe "building a request" do
     end
 
     # A path parameter is written in that same style, and no document here
-    # types one as anything but a scalar. The separator is percent-encoded
-    # along with the rest of the segment, as it already was for a list.
+    # types one as anything but a scalar. The separators are literal: a path
+    # segment is allowed to hold a comma, and RFC 6570 encodes what is inside
+    # the separators rather than the separators themselves.
     it "sends a path parameter that is not a scalar in the simple style" do
       targets = []
       recorder = Class.new do
@@ -151,7 +152,33 @@ RSpec.describe "building a request" do
 
       client.go([3, 4])
       client.go({ "role" => "admin", "name" => "alex" })
-      expect(targets).to eq ["3%2C4", "role%2Cadmin%2Cname%2Calex"]
+      expect(targets).to eq ["3,4", "role,admin,name,alex"]
+    end
+
+    # Down to RFC 3986's unreserved characters, which is what tells the two
+    # commas apart: the one between two elements is the style's, and the one
+    # inside an element is the caller's and cannot be left to be read as a
+    # separator. A space is `%20` — `+` means a space in a query and a plus
+    # sign in a path — and a slash is encoded rather than left to open a
+    # segment the template never had.
+    it "percent-encodes what goes inside a path parameter, and not the separators" do
+      targets = []
+      recorder = Class.new do
+        define_method(:call) do |_verb, uri, *|
+          targets << uri.path.split("/").last
+          [200, {}, nil]
+        end
+      end.new
+
+      client = Class.new(Keiyaku::Client) do
+        server "https://example.test"
+        get :go, "/things/{key}"
+      end.new(adapter: recorder)
+
+      client.go("a b/c")
+      client.go(["a,b", "c"])
+      client.go("café")
+      expect(targets).to eq ["a%20b%2Fc", "a%2Cb,c", "caf%C3%A9"]
     end
 
     # `def import(until: nil)` is a method Ruby will define, and `until` in

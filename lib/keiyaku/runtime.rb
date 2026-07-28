@@ -445,7 +445,12 @@ module Keiyaku
       end
     end
 
-    def path(name, value, explode: false) = URI.encode_www_form_component(simple(name, value, explode:))
+    # What a path parameter has to be encoded down to: RFC 3986's unreserved
+    # characters are what simple expansion may leave as they are, and this
+    # matches everything else.
+    ESCAPED = /[^A-Za-z0-9\-._~]/
+
+    def path(name, value, explode: false) = simple(name, value, explode:, escape: true)
 
     # OpenAPI's `simple` style, which is what a path or a header parameter is
     # written in unless the document said otherwise: an array is its elements
@@ -456,21 +461,36 @@ module Keiyaku
     # What it exists to keep off the wire is Ruby's own #to_s: `[1, 2]` on a
     # header reaches a server as a string with brackets and a space in it, and
     # nothing on the other side reads that back as two values.
-    def simple(name, value, explode: false)
+    def simple(name, value, explode: false, escape: false)
+      part = ->(inner) { simple_part(name, inner, escape:) }
+
       case (value = Keiyaku.dump(value))
-      when Array then value.map { simple_part(name, _1) }.join(",")
-      when Hash  then value.map { |key, inner| "#{key}#{explode ? "=" : ","}#{simple_part(name, inner)}" }.join(",")
-      else stringify(value)
+      when Array then value.map(&part).join(",")
+      when Hash  then value.map { |key, inner| "#{part.(key)}#{explode ? "=" : ","}#{part.(inner)}" }.join(",")
+      else part.(value)
       end
     end
 
-    # The style's row in the specification stops where deepObject's does: it
-    # gives no spelling for an array or an object inside one, so that is
-    # refused rather than sent as whatever #to_s makes of it.
-    def simple_part(name, value)
-      return stringify(value) unless value.is_a?(Array) || value.is_a?(Hash)
+    # One value inside a simple parameter. The style's row in the
+    # specification stops where deepObject's does: it gives no spelling for an
+    # array or an object inside one, so that is refused rather than sent as
+    # whatever #to_s makes of it.
+    #
+    # In a path it is percent-encoded and the separators around it are not,
+    # which is RFC 6570's simple expansion and the only way the two are told
+    # apart: a segment is allowed to hold a comma, so the comma between two
+    # elements is left as one and a comma inside an element becomes %2C. The
+    # encoding is down to the unreserved characters — a space is %20 and not
+    # the `+` that means a space only in a query — and it is by byte, so a
+    # name outside ASCII survives the trip. A header is not a URL and is not
+    # encoded at all.
+    def simple_part(name, value, escape: false)
+      if value.is_a?(Array) || value.is_a?(Hash)
+        raise Error, "#{name} contains #{value.class}; OpenAPI does not say how a simple parameter nests"
+      end
 
-      raise Error, "#{name} contains #{value.class}; OpenAPI does not say how a simple parameter nests"
+      part = stringify(value)
+      escape ? part.gsub(ESCAPED) { |char| char.each_byte.map { format("%%%02X", _1) }.join } : part
     end
 
     # Build a multipart/form-data body. An array property becomes one part per

@@ -135,6 +135,13 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
   carries — for an object. It used to be whatever `#to_s` made of the value,
   so a list reached the server as a string with brackets and a space in it and
   an object as a Ruby Hash literal, neither of which anything reads back
+- a path parameter is percent-encoded the way RFC 6570 says its style is: down
+  to the unreserved characters, and inside the separators rather than over
+  them. The whole segment used to go through `URI.encode_www_form_component`,
+  which is the query's encoding and not a path's — a space became `+`, which
+  in a path is a plus sign, and the comma between two elements of a list was
+  encoded along with any comma inside one, so that neither could be told from
+  the other at the far end
 - `Retry-After` is read in both the forms RFC 7231 writes it: the seconds to
   wait, and the date the wait is over. The date raised an `ArgumentError` from
   the middle of the retry — out of the call the header was asking to have made
