@@ -6,9 +6,15 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
 3.0 or 3.1 document.
 
 - `Keiyaku::Client` DSL: one line per operation, real method arity
-- `Keiyaku.model`: schemas as `Data` subclasses. Casting a response ignores
+- `Keiyaku.model`: schemas as `Keiyaku::Model` subclasses — frozen, compared by
+  value, copied with `#with`, pattern-matched. Casting a response ignores
   fields the document never mentioned; constructing one refuses a keyword it
   does not know, which is a typo rather than a server that has moved on
+- `additionalProperties` is carried rather than dropped: a schema that says
+  there may be properties it did not name gets a model that keeps them, read
+  through the same `[]` as a property Ruby will not take through a dot, and
+  written back under the names they arrived with. A schema that says nothing
+  stays as strict as it was
 - `style`/`explode` defaults (`form` for query, `simple` for path and header)
 - `style: deepObject` query parameters, which go out as `filter[status]=live`.
   The style has one rendering in the specification and it is an object's, so
@@ -21,7 +27,10 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
   only the operations that require it
 - API key in a header, query parameter or cookie; bearer and basic; OAuth 2
   and OpenID Connect access tokens, which are bearer tokens
-- typed error bodies, mapped to `Keiyaku::ClientError` / `ServerError`
+- typed error bodies, mapped to `Keiyaku::ClientError` / `ServerError`; a
+  request that never happened is a `Keiyaku::ConnectionError` whichever adapter
+  it was, with the transport's own exception on `#cause`
+- `timeout:` takes `{ open:, read: }` as well as one number for both
 - constructs that cannot be translated faithfully are refused at generation
   time and raise `Keiyaku::Unsupported` if called
 - inline schemas are named for where the document wrote them — the operation

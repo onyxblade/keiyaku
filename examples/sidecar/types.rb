@@ -64,7 +64,7 @@ module Sidecar
     expires_time: Float,
     from_prior: String,
     attachments: [Attachment]
-  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" })
+  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" }, open: true)
   ErrorResponse = Keiyaku.model({ error: String, message: String }, required: %i[error message])
   PostDidcommPackEncryptedBodyOptions = Keiyaku.model({
     protect_sender: :bool,

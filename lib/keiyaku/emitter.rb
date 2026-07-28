@@ -16,11 +16,12 @@ module Keiyaku
   class Emitter
     Refusal = Struct.new(:operation, :reason)
 
-    # One Data subclass to be emitted. `fields` maps the Ruby name to the Ruby
-    # source for its type, `from` to the JSON name where the two differ. Being
-    # a value, two of these built from the same schema compare equal, which is
-    # what lets an inline schema appearing twice be emitted once.
-    Model = Data.define(:fields, :required, :from)
+    # One model class to be emitted. `fields` maps the Ruby name to the Ruby
+    # source for its type, `from` to the JSON name where the two differ, and
+    # `open` carries what `additionalProperties` said. Being a value, two of
+    # these built from the same schema compare equal, which is what lets an
+    # inline schema appearing twice be emitted once.
+    Model = Data.define(:fields, :required, :from, :open)
 
     # Stamped on every file it writes: which generator, and which version of
     # the runtime contract the code was written against.
@@ -235,6 +236,7 @@ module Keiyaku
     def build_model(const, schema, deps, upload: false)
       declared = schema["required"] || []
       fields, required, from, seen = {}, [], {}, {}
+      open = open_for(schema, const, deps)
 
       (schema["properties"] || {}).each do |json_name, property|
         field = Names.field(json_name)
@@ -251,7 +253,24 @@ module Keiyaku
         from[field] = json_name if Keiyaku.camelize(field) != json_name
       end
 
-      Model.new(fields:, required:, from:)
+      Model.new(fields:, required:, from:, open:)
+    end
+
+    # What `additionalProperties` says about the properties the schema did not
+    # name: nothing, anything, or a type they all have. A document that says
+    # so means it — DIDComm messages carry headers no schema lists, and the
+    # spec has extensions of its own — so the model keeps them rather than
+    # dropping them on the way through.
+    #
+    # Silence stays strict. `additionalProperties` absent is the overwhelming
+    # majority of schemas, plenty of which do mean "and nothing else", and a
+    # model that quietly accepted anything would take a caller's typo along
+    # with it.
+    def open_for(schema, const, deps)
+      case schema["additionalProperties"]
+      when true then "true"
+      when Hash then type_for(schema["additionalProperties"], "#{const}{}", deps)
+      end
     end
 
     def merge_all_of(schema)
@@ -314,10 +333,14 @@ module Keiyaku
         # and a file would be meaningless.
         "[#{type_for(schema["items"] || {}, "#{context}[]", deps, upload:)}]"
       when "object", nil
-        if (additional = schema["additionalProperties"]).is_a?(Hash)
-          "{ String => #{type_for(additional, "#{context}{}", deps)} }"
-        elsif schema["properties"]
+        # A schema with properties is a model, and stays one when it also
+        # allows properties it did not name: the model carries those. Reading
+        # `additionalProperties` first, as this did, threw the named ones away
+        # and left a bare map in place of the shape the document described.
+        if schema["properties"]
           hoist(context, schema, deps)
+        elsif (additional = schema["additionalProperties"]).is_a?(Hash)
+          "{ String => #{type_for(additional, "#{context}{}", deps)} }"
         else
           ":any"
         end
@@ -724,10 +747,11 @@ module Keiyaku
     # `{ "+1": Integer }` is the same Hash as `{ :"+1" => Integer }`.
     def label(field) = Names.bare?(field) ? field : field.inspect
 
-    def model_options(model)
+    def model_options(model, defined = [])
       options = []
       options << "required: %i[#{model.required.join(" ")}]" if model.required.any?
       options << "from: { #{model.from.map { |field, json| "#{label(field)}: #{json.inspect}" }.join(", ")} }" if model.from.any?
+      options << "open: #{lazily(model.open, defined)}" if model.open
       options
     end
 
@@ -748,7 +772,7 @@ module Keiyaku
         next "  #{const} = #{model}" if model.is_a?(String)
 
         fields = model.fields.map { |field, type| "#{label(field)}: #{lazily(type, defined - [const])}" }
-        options = model_options(model).map { ", #{_1}" }.join
+        options = model_options(model, defined - [const]).map { ", #{_1}" }.join
         one_line = "  #{const} = Keiyaku.model({ #{fields.join(", ")} }#{options})"
         next one_line if one_line.length <= 110
 

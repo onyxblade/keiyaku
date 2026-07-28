@@ -27,7 +27,7 @@ module SidecarInline
     expires_time: Float,
     from_prior: String,
     attachments: [PostDidcommPackEncryptedBodyMessageAttachments]
-  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" })
+  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" }, open: true)
   PostDidcommPackEncryptedBodyOptions = Keiyaku.model({
     protect_sender: :bool,
     forward: :bool,
@@ -114,7 +114,7 @@ module SidecarInline
     expires_time: Float,
     from_prior: String,
     attachments: [PostDidcommPackSignedBodyMessageAttachments]
-  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" })
+  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" }, open: true)
   PostDidcommPackSignedBodyDidDocsVerificationMethod = Keiyaku.model({
     id: String,
     type: String,
@@ -179,7 +179,7 @@ module SidecarInline
     expires_time: Float,
     from_prior: String,
     attachments: [PostDidcommPackPlaintextBodyMessageAttachments]
-  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" })
+  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" }, open: true)
   PostDidcommPackPlaintextBodyDidDocsVerificationMethod = Keiyaku.model({
     id: String,
     type: String,
@@ -269,7 +269,7 @@ module SidecarInline
     expires_time: Float,
     from_prior: String,
     attachments: [PostDidcommUnpackResultMessageAttachments]
-  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" })
+  }, required: %i[id typ type body], from: { created_time: "created_time", expires_time: "expires_time", from_prior: "from_prior" }, open: true)
   PostDidcommUnpackResultMetadata = Keiyaku.model({
     encrypted: :bool,
     authenticated: :bool,

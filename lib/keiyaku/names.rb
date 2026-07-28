@@ -29,12 +29,17 @@ module Keiyaku
     CLIENT_METHODS = (Keiyaku::Client.instance_methods(false) +
                       Keiyaku::Client.private_instance_methods(false) + %i[initialize]).map(&:to_s).freeze
 
-    # A model's own contract: `with` and `to_h` are how a Data is used,
+    # A model's own contract: `with` and `to_h` are how a value type is used,
     # `deconstruct_keys` is how it pattern matches, `to_json_hash` is how it
     # becomes a request body, and `class` is how anything finds out what it
     # is. A property taking one of those names leaves the model unable to do
     # its job — unlike, say, one called `hash`, which plenty of real documents
     # have and which costs only the model's use as a Hash key.
+    #
+    # The properties a document allows but does not name are read through the
+    # same `[]` that reads a declared one, so a model open to them spends no
+    # name here that a closed one does not — a reader called `extra` would
+    # have cost this table a word that real documents use as a property.
     #
     # `members` is not among them. The runtime asks the class for its members
     # and never the instance, so a property of that name shadows a method
@@ -92,14 +97,14 @@ module Keiyaku
       ruby
     end
 
-    # A field is a Data member, which is a method reached through a dot and a
-    # Hash key written as a label. Both take a keyword: `{ end: String }` and
-    # `range.end` are ordinary Ruby, and a date range is not an unusual shape
-    # for a document to have. Only the names below are actually spent.
+    # A field is a model's member, which is a method reached through a dot and
+    # a Hash key written as a label. Both take a keyword: `{ end: String }`
+    # and `range.end` are ordinary Ruby, and a date range is not an unusual
+    # shape for a document to have. Only the names below are actually spent.
     #
     # A name Ruby will not take as an identifier keeps the one the document
     # gave it — GitHub counts its reactions in properties called `+1` and
-    # `-1`. A Data member may be called that: it casts, round-trips, copies
+    # `-1`. A member may be called that: it casts, round-trips, copies
     # with `with` and pattern matches as `in { "+1": n }`. The one thing it
     # cannot do is be reached through a dot, so `model["+1"]` is how it is
     # read, and the RBS types that rather than an attr_reader. Renaming it to

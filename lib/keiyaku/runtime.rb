@@ -40,6 +40,20 @@ module Keiyaku
   class ClientError < HTTPError; end
   class ServerError < HTTPError; end
 
+  # The request did not happen: connection refused, DNS failure, a timeout.
+  # Every adapter raises this rather than its own library's class, because
+  # otherwise the seam leaks — an application that moves a client from
+  # Net::HTTP to Faraday would find its `rescue` quietly matching nothing, and
+  # a call it thought it had covered taking the process down. The original is
+  # on #cause for anything that does want to know.
+  class ConnectionError < Error; end
+
+  # What a transport failure looks like from the stdlib, which an adapter an
+  # application wrote itself is likely to let through as-is. Net::OpenTimeout
+  # and Net::ReadTimeout are Timeout::Error; Errno::ECONNREFUSED and the rest
+  # of Errno are SystemCallError.
+  TRANSPORT_ERRORS = [IOError, SystemCallError, SocketError, Timeout::Error].freeze
+
   # The words Ruby will not read as a name. Lives here rather than with the
   # generator's other name tables because the generated method body has to
   # know too: a parameter may be named for one of these, and reading it is
@@ -64,6 +78,20 @@ module Keiyaku
         .tr("- ", "__")
         .gsub(/[^a-zA-Z0-9_]/, "")
         .downcase
+  end
+
+  # `timeout:` as every adapter takes it: one number for both phases, or
+  # `{ open: 2, read: 10 }` for two. They are usually two different patiences
+  # — how long to wait to find out a host is not there is not how long to wait
+  # for a slow answer — and a client sitting inside somebody else's request
+  # has to bound the first one much more tightly than the second.
+  def timeouts(timeout)
+    return [timeout, timeout] unless timeout.is_a?(Hash)
+
+    unknown = timeout.keys - %i[open read]
+    raise ArgumentError, "timeout: takes open: and read:, not #{unknown.map(&:inspect).join(", ")}" if unknown.any?
+
+    [timeout[:open], timeout[:read]]
   end
 
   # Coerce a decoded JSON value into a declared type.
@@ -109,78 +137,180 @@ module Keiyaku
   #
   #   Pet = Keiyaku.model({ id: Integer, name: String }, required: %i[name])
   #
-  # Returns a Data subclass, so callers get immutability, #with and pattern
-  # matching for free. Missing optional fields arrive as nil rather than
+  # Returns a Keiyaku::Model subclass, so callers get immutability, #with and
+  # pattern matching. Missing optional fields arrive as nil rather than
   # raising, and unknown fields in a response are ignored so that a server
   # adding a field does not break an old client.
   #
   # The fields are a positional Hash rather than keywords because they are the
   # API's names, not ours: a DIDComm message has a property called `from`, and
   # as keywords it would have quietly taken the place of the option below it.
-  def model(fields, required: [], from: {})
-    names = fields.keys
-    json_names = names.to_h { |n| [n, (from[n] || camelize(n)).to_s] }
+  #
+  # `open:` is what the document's `additionalProperties` said: false for a
+  # schema that named all its properties, true for one that allows any others,
+  # or the type it declared for their values.
+  def model(fields, required: [], from: {}, open: false)
+    Class.new(Model) { __define(fields, required:, from:, open:) }
+  end
 
-    klass = Data.define(*names) do
-      # Lenient about what is missing, strict about what it does not know.
-      # A field left out is nil, because a schema with thirty optional
-      # properties is not worth thirty keywords at every call site; a field
-      # that is not in the schema is a typo, and the alternative to saying so
-      # is a request that quietly goes out without it.
-      def initialize(**kw)
-        members = self.class.members
-        unknown = kw.keys - members
-        raise ArgumentError, "unknown keyword#{"s" if unknown.size > 1}: #{unknown.map(&:inspect).join(", ")}" if unknown.any?
+  # The value type a schema becomes: frozen, compared by value, copied with
+  # #with, matched with `in`. One subclass per schema, built by Keiyaku.model,
+  # with a matching RBS class emitted beside the generated code.
+  #
+  # This was a Data subclass until `additionalProperties` needed somewhere to
+  # put the properties a document permits but does not name. A Data's members
+  # are the whole of its state, so an overflow could only have been one more
+  # member — turning up in #members, #to_h and every pattern match, which is
+  # precisely what those keys are not. Written out, the overflow is an
+  # ordinary ivar and the shape a model presents stays the schema's.
+  class Model
+    class << self
+      # The schema as the generator read it: field name => type, in the
+      # document's order. `members` is the same list without the types.
+      attr_reader :members, :types
 
-        super(**members.to_h { |m| [m, kw[m]] })
+      # Field name => the name it goes by on the wire.
+      attr_reader :json_names
+
+      attr_reader :required
+
+      # What `additionalProperties` said: false, true, or a type for the
+      # values. Reading it is how #cast and #[] know which they are dealing
+      # with; `open?` is the question almost everything actually asks.
+      attr_reader :additional
+
+      def open? = !!@additional
+
+      def __define(fields, required:, from:, open:)
+        @types = fields.freeze
+        @members = fields.keys.freeze
+        @json_names = @members.to_h { |field| [field, (from[field] || Keiyaku.camelize(field)).to_s] }.freeze
+        @required = required.freeze
+        @additional = open
+
+        # define_method takes a name Ruby will not parse as one, and
+        # public_send reads it back; only the dot is out of reach.
+        @members.each { |field| define_method(field) { @attributes[field] } }
       end
 
-      # How a field is read when its name is not one Ruby will take through a
-      # dot: GitHub counts thumbs-up reactions in a property called `+1`, and
-      # renaming it here would be inventing a name the document never used.
-      # Ordinary fields answer to it too, so nothing has to know which is
-      # which. A name the model does not have is a typo rather than a nil.
-      def [](name)
-        field = name.to_sym
-        unless self.class.members.include?(field)
-          raise ArgumentError, "#{self.class} has no field #{name.inspect}"
+      def cast(value, path = (name || "value"))
+        return value if value.is_a?(self)
+        raise CastError, "#{path}: expected an object, got #{value.class}" unless value.is_a?(Hash)
+
+        attrs = types.to_h do |field, type|
+          json = json_names[field]
+          raw = value.key?(json) ? value[json] : value[field.to_s]
+          if raw.nil? && required.include?(field) && !value.key?(json)
+            raise CastError, "#{path}: missing required field #{json.inspect}"
+          end
+
+          [field, Keiyaku.coerce(type, raw, "#{path}.#{field}")]
         end
 
-        public_send(field)
-      end
+        return new(**attrs) unless open?
 
-      def to_json_hash
-        self.class.json_names.filter_map do |name, json|
-          value = public_send(name)
-          [json, Keiyaku.dump(value)] unless value.nil?
-        end.to_h
-      end
-
-      def to_json(*args) = to_json_hash.to_json(*args)
-    end
-
-    klass.define_singleton_method(:types)      { fields }
-    klass.define_singleton_method(:json_names) { json_names }
-    klass.define_singleton_method(:required)   { required }
-
-    klass.define_singleton_method(:cast) do |value, path = (name || "value")|
-      return value if value.is_a?(self)
-      raise CastError, "#{path}: expected an object, got #{value.class}" unless value.is_a?(Hash)
-
-      attrs = types.to_h do |field, type|
-        json = json_names[field]
-        raw = value.key?(json) ? value[json] : value[field.to_s]
-        if raw.nil? && required.include?(field) && !value.key?(json)
-          raise CastError, "#{path}: missing required field #{json.inspect}"
+        # Everything the schema did not name, under the spelling it arrived
+        # with: a declared field has `from:` to translate its name and an
+        # undeclared one has nothing, so camelizing it would be a guess. That
+        # is also what makes the round trip lossless.
+        extra = value.except(*json_names.values, *members.map(&:to_s)).to_h do |key, raw|
+          [key.to_sym, additional == true ? raw : Keiyaku.coerce(additional, raw, "#{path}.#{key}")]
         end
 
-        [field, Keiyaku.coerce(type, raw, "#{path}.#{field}")]
+        new(**attrs, **extra)
       end
-
-      new(**attrs)
     end
 
-    klass
+    # Lenient about what is missing, strict about what it does not know.
+    # A field left out is nil, because a schema with thirty optional
+    # properties is not worth thirty keywords at every call site; a field that
+    # is not in the schema is a typo, and the alternative to saying so is a
+    # request that quietly goes out without it. On an open model there is no
+    # such thing as a keyword the schema did not mention, so it is kept.
+    def initialize(**kw)
+      members = self.class.members
+      unknown = kw.keys - members
+      if unknown.any? && !self.class.open?
+        raise ArgumentError, "unknown keyword#{"s" if unknown.size > 1}: #{unknown.map(&:inspect).join(", ")}"
+      end
+
+      @attributes = members.to_h { |field| [field, kw[field]] }.freeze
+      @extra = unknown.to_h { |key| [key.to_s, kw[key]] }.freeze
+      freeze
+    end
+
+    # How a field is read when its name is not one Ruby will take through a
+    # dot: GitHub counts thumbs-up reactions in a property called `+1`, and
+    # renaming it here would be inventing a name the document never used.
+    # Ordinary fields answer to it too, so nothing has to know which is which.
+    #
+    # On a closed model a name it does not have is a typo rather than a nil.
+    # An open model was told there would be names it does not have, so the
+    # same premise says the opposite there: this is where the overflow is
+    # read, and a miss is nil the way it is in a Hash.
+    def [](name)
+      field = name.to_sym
+      return @attributes[field] if @attributes.key?(field)
+      return @extra[name.to_s] if self.class.open?
+
+      raise ArgumentError, "#{self.class} has no field #{name.inspect}"
+    end
+
+    def with(**kw) = self.class.new(**@attributes, **@extra.transform_keys(&:to_sym), **kw)
+
+    def to_h(&block) = block ? @attributes.to_h(&block) : @attributes.dup
+
+    def deconstruct = @attributes.values
+
+    def deconstruct_keys(keys)
+      return @attributes.dup if keys.nil?
+
+      keys.each_with_object({}) { |key, found| found[key] = @attributes[key] if @attributes.key?(key) }
+    end
+
+    # Read through the ivars rather than a reader of this class's own: a
+    # property may be named anything at all, and a document with one named for
+    # that reader would quietly break equality instead of merely shadowing a
+    # method nothing calls.
+    def ==(other)
+      return false unless other.instance_of?(self.class)
+
+      @attributes == other.instance_variable_get(:@attributes) &&
+        @extra == other.instance_variable_get(:@extra)
+    end
+
+    def eql?(other)
+      return false unless other.instance_of?(self.class)
+
+      @attributes.eql?(other.instance_variable_get(:@attributes)) &&
+        @extra.eql?(other.instance_variable_get(:@extra))
+    end
+
+    def hash = [self.class, @attributes, @extra].hash
+
+    def inspect
+      shown = @attributes.map { |field, value| "#{field}=#{value.inspect}" }
+      # The overflow prints as the bag it is, so a key the schema never named
+      # does not read as one it did — and prints only when there is something
+      # in it. It has no reader of its own, so leaving it out entirely would
+      # make it visible only to someone who already knew the key to ask for.
+      shown << @extra.inspect unless @extra.empty?
+      "#<#{self.class.name || "Keiyaku::Model"}#{" " unless shown.empty?}#{shown.join(", ")}>"
+    end
+
+    alias to_s inspect
+
+    def to_json_hash
+      named = self.class.json_names.filter_map do |field, json|
+        value = @attributes[field]
+        [json, Keiyaku.dump(value)] unless value.nil?
+      end.to_h
+      return named if @extra.empty?
+
+      named.merge(@extra.transform_values { Keiyaku.dump(_1) })
+    end
+
+    def to_json(*args) = to_json_hash.to_json(*args)
   end
 
   # A union with a discriminator: into: OneOf[Dog, Cat, on: "petType"]
@@ -340,12 +470,15 @@ module Keiyaku
   # This is the only part of the runtime a host application might want to
   # replace, which is why it is one method with no state.
   class NetHTTPAdapter
-    def initialize(timeout: 15) = @timeout = timeout
+    def initialize(timeout: 15)
+      @open_timeout, @read_timeout = Keiyaku.timeouts(timeout)
+    end
 
     def call(verb, uri, headers, body)
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = uri.scheme == "https"
-      http.open_timeout = http.read_timeout = @timeout
+      http.open_timeout = @open_timeout
+      http.read_timeout = @read_timeout
 
       request = Net::HTTP.const_get(verb.to_s.capitalize).new(uri)
       headers.each { |k, v| request[k] = v }
@@ -353,6 +486,8 @@ module Keiyaku
 
       response = http.request(request)
       [response.code.to_i, response.to_hash.transform_values(&:first), response.body]
+    rescue *TRANSPORT_ERRORS => e
+      raise ConnectionError, "#{verb.to_s.upcase} #{uri}: #{e.message}"
     end
   end
 
@@ -658,24 +793,30 @@ module Keiyaku
 
     def __send_with_retries(verb, uri, headers, payload)
       attempt = 0
-      begin
-        @logger&.debug { "#{verb.to_s.upcase} #{uri}" }
-        status, response_headers, raw = @adapter.call(verb, uri, headers, payload)
-        response_headers = __normalize(response_headers)
-        if (status == 429 || status >= 500) && attempt < @retries
+
+      loop do
+        begin
+          @logger&.debug { "#{verb.to_s.upcase} #{uri}" }
+          status, response_headers, raw = @adapter.call(verb, uri, headers, payload)
+        rescue ConnectionError, *TRANSPORT_ERRORS => e
+          # Nothing came back at all. The shipped adapters have already said
+          # so in the one class an application can rescue; one written around
+          # another library may not have, and the caller should not have to
+          # know which library refused the connection in order to catch it.
+          error = e.is_a?(ConnectionError) ? e : ConnectionError.new("#{verb.to_s.upcase} #{uri}: #{e.message}")
+          raise error unless attempt < @retries
+
           attempt += 1
-          # Retry-After is an instruction; obey it. The fallback is ours.
-          sleep(Float(response_headers["retry-after"] || __backoff(attempt)))
-          raise IOError, "retry"
+          sleep(__backoff(attempt))
+          next
         end
-        [status, response_headers, raw]
-      rescue IOError, SystemCallError, Net::OpenTimeout, Net::ReadTimeout
-        retry if $!.message == "retry"
-        raise unless attempt < @retries
+
+        response_headers = __normalize(response_headers)
+        return [status, response_headers, raw] unless (status == 429 || status >= 500) && attempt < @retries
 
         attempt += 1
-        sleep(__backoff(attempt))
-        retry
+        # Retry-After is an instruction; obey it. The fallback is ours.
+        sleep(Float(response_headers["retry-after"] || __backoff(attempt)))
       end
     end
 

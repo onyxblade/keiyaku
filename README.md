@@ -73,7 +73,7 @@ client = Petstore::Client.new(auth: { api_key: ENV["PETSTORE_KEY"] })
 
 pet = client.get_pet_by_id(5)          # => Petstore::Pet
 pet.photo_urls                         # camelCase mapped to snake_case
-pet.with(name: "Nori")                 # it's a Data, so this is free
+pet.with(name: "Nori")                 # models are frozen values; copies are cheap
 
 case client.find_pets_by_status(status: "available")
 in [{ name:, category: { name: "Dogs" } }, *] then ...
@@ -124,6 +124,35 @@ Some unions are only unions on paper, and those keep their type. `anyOf: [{type:
 string}, {type: null}]` is how OpenAPI 3.1 says a field may be null, and a union
 whose branches all resolve to the same type says nothing that type does not:
 both become `String`. Neither is a guess, so neither is worth a note.
+
+A schema that says `additionalProperties` is a document telling you there will
+be properties it did not name, and the model keeps them. DIDComm is the case in
+hand: the specification has header extensions of its own and an implementation
+may add more, so a client that dropped them could not forward a message it had
+not composed itself.
+
+```ruby
+Message = Keiyaku.model({ id: String, body: { String => :any } },
+                        required: %i[id], open: true)
+
+message = Message.cast(wire)
+message.id                             # a declared property, through a dot
+message["please_ack"]                  # one the schema never named
+message.to_json_hash == wire           # true — nothing was dropped on the way
+```
+
+They are read through the same `[]` that reads a property whose name Ruby will
+not take through a dot, so an open model has no API a closed one lacks. They
+stay out of `members`, `to_h` and pattern matching, which describe the shape
+the document actually specified. Their keys keep the spelling they arrived
+with — a declared property has the document's name to map back to and an
+undeclared one has nothing, so camelizing it would be a guess, and that is
+what makes the round trip lossless.
+
+`additionalProperties: {type: integer}` says what the values are, and the model
+casts them. A schema that says nothing stays strict: absent is the great
+majority of schemas, plenty of which do mean "and nothing else", and a model
+that quietly accepted anything would accept a caller's typo along with it.
 
 A `multipart/form-data` body is a model like any other, except that a property
 with `format: binary` is typed `:upload`:
@@ -202,6 +231,22 @@ whatever case the library uses; the runtime lower-cases them, so an adapter
 cannot get that wrong. Built-in retries back off exponentially with jitter and
 honour `Retry-After`; if Faraday is already carrying faraday-retry, build the
 client with `retries: 0` and let the middleware do it properly.
+
+A request that never happened — connection refused, DNS failure, a timeout —
+is a `Keiyaku::ConnectionError` whatever is underneath, with the library's own
+exception on `#cause`. Otherwise the seam leaks: an application that moved a
+client from `net/http` to Faraday would find its `rescue` matching nothing, and
+a refused connection taking the process down.
+
+`timeout:` is one number for both phases or two:
+
+```ruby
+Petstore::Client.new(timeout: { open: 2, read: 10 })
+```
+
+Waiting to find out a host is not there and waiting for a slow answer are two
+different patiences, and a client that sits mid-request inside somebody else's
+application has to bound the first much more tightly than the second.
 
 ## Refusing rather than guessing
 

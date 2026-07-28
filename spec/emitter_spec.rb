@@ -228,6 +228,63 @@ RSpec.describe Keiyaku::Emitter do
     end
   end
 
+  # `additionalProperties` and `properties` are not alternatives, and reading
+  # the first one first threw the second away: a DIDComm message, whose schema
+  # names eleven headers and then says there may be more, came out as a bare
+  # map with none of them on it.
+  describe "additionalProperties" do
+    def emitted(schema)
+      source = nil
+      generate(returning(schema)) { |_, dir| source = File.read(File.join(dir, "types.rb")) }
+      source
+    end
+
+    it "opens a model that also names its properties" do
+      source = emitted("type: object\nadditionalProperties: true\nproperties:\n  id: { type: string }")
+      expect(source).to include("ListThingsResult = Keiyaku.model({ id: String }, open: true)")
+    end
+
+    it "carries the type the document declared for the values it did not name" do
+      source = emitted(<<~YAML)
+        type: object
+        additionalProperties: { type: integer }
+        properties:
+          id: { type: string }
+      YAML
+      expect(source).to include("ListThingsResult = Keiyaku.model({ id: String }, open: Integer)")
+    end
+
+    # With no properties of its own it is a map, which is what it always was.
+    it "still types a schema that names nothing as a map" do
+      generate(returning("type: object\nadditionalProperties: { type: integer }")) do |_, dir|
+        expect(File.read(File.join(dir, "client.rb"))).to include("into: { String => Integer }")
+      end
+    end
+
+    # Absent is the overwhelming majority of schemas, plenty of which do mean
+    # "and nothing else". A model that quietly took anything would take a
+    # caller's typo with it.
+    it "leaves a schema that says nothing exactly as strict as it was" do
+      source = emitted("type: object\nproperties:\n  id: { type: string }")
+      expect(source).to include("ListThingsResult = Keiyaku.model({ id: String })")
+    end
+
+    it "is closed by a document that says so" do
+      source = emitted("type: object\nadditionalProperties: false\nproperties:\n  id: { type: string }")
+      expect(source).to include("ListThingsResult = Keiyaku.model({ id: String })")
+    end
+
+    # The reader is `[]`, which every model has; a reader of its own would have
+    # cost the name table a word that real documents use as a property.
+    it "types the extra properties on [] rather than inventing a reader" do
+      generate(returning("type: object\nadditionalProperties: true\nproperties:\n  id: { type: string }")) do |_, dir|
+        rbs = File.read(Dir[File.join(dir, "*.rbs")].first)
+        expect(rbs).to include("def []: (String | Symbol) -> untyped")
+        expect(rbs).to include("def self.new: (?id: String?, **untyped) -> ListThingsResult")
+      end
+    end
+  end
+
   # The runtime asks the class for its members and never the instance, so a
   # property of that name shadows a method nothing calls.
   it "keeps a property called members" do
@@ -247,7 +304,7 @@ RSpec.describe Keiyaku::Emitter do
     expect(emitter.refusals).to be_empty
   end
 
-  # A component that is not an object is not a Data subclass. Building one as
+  # A component that is not an object is not a model subclass. Building one as
   # a model with no fields casts nothing, so the client loaded and typechecked
   # and then raised on the first response that carried the field.
   describe "a component that is not an object" do

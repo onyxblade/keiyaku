@@ -40,4 +40,48 @@ RSpec.describe "failure" do
   it "raises Unsupported for an operation it refused to build" do
     expect { widgets.list_widgets }.to raise_error(Keiyaku::Unsupported, /deepObject/)
   end
+
+  # An application rescues what it was told to rescue. If that is whichever
+  # class the HTTP library underneath happens to raise, then moving the client
+  # onto another one leaves the rescue matching nothing and a refused
+  # connection taking the process down.
+  describe "a request that never happened" do
+    # A port nothing is listening on, so the failure is immediate. A black
+    # hole address would make the example wait for a real timeout.
+    def unreachable(**options)
+      Petstore::Client.new(base_url: "http://127.0.0.1:1/api/v3", **options)
+    end
+
+    it "is a ConnectionError rather than the transport's own class" do
+      expect { unreachable.get_pet_by_id(5) }.to raise_error(Keiyaku::ConnectionError, /GET/)
+    end
+
+    it "keeps the original on #cause, for anything that does want to know" do
+      expect { unreachable.get_pet_by_id(5) }
+        .to raise_error(Keiyaku::ConnectionError) { expect(_1.cause).to be_a(SystemCallError) }
+    end
+
+    # An adapter an application wrote itself is likely to let its library's
+    # exceptions straight through. The promise holds either way.
+    it "is one even from an adapter that raises its own" do
+      leaky = Class.new do
+        def call(*) = raise(Errno::ECONNRESET)
+      end.new
+
+      expect { unreachable(adapter: leaky).get_pet_by_id(5) }.to raise_error(Keiyaku::ConnectionError)
+    end
+
+    it "is retried as many times as the client was built for" do
+      calls = 0
+      flaky = Class.new do
+        define_method(:call) do |*|
+          calls += 1
+          raise Errno::ECONNREFUSED
+        end
+      end.new
+
+      expect { unreachable(adapter: flaky, retries: 2).get_pet_by_id(5) }.to raise_error(Keiyaku::ConnectionError)
+      expect(calls).to eq 3
+    end
+  end
 end

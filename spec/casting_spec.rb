@@ -4,7 +4,7 @@ RSpec.describe "decoding a response" do
   describe "a model" do
     subject(:pet) { petstore.get_pet_by_id(5) }
 
-    it "casts into the generated Data type" do
+    it "casts into the generated model type" do
       expect(pet).to be_a(Petstore::Pet).and be_frozen
     end
 
@@ -30,7 +30,7 @@ RSpec.describe "decoding a response" do
       expect(matched).to be true
     end
 
-    it "supports #with, being a Data" do
+    it "copies with #with, leaving the original alone" do
       expect(pet.with(name: "Nori").name).to eq "Nori"
       expect(pet.name).to eq "Kaya"
     end

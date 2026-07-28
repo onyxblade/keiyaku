@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 RSpec.describe "a discriminated union" do
-  it "is a OneOf rather than a Data subclass" do
+  it "is a OneOf rather than a model subclass" do
     expect(Widgets::Event).to be_a(Keiyaku::OneOf)
   end
 

@@ -16,6 +16,34 @@ RSpec.describe "the adapter seam" do
     expect(pet).to be_a(Petstore::Pet).and have_attributes(name: "Kaya")
   end
 
+  # Waiting to find out a host is not there and waiting for a slow answer are
+  # two different patiences. A client that sits mid-request inside somebody
+  # else's application has to bound the first tightly and can afford the
+  # second, and one number for both makes that impossible to say.
+  describe "timeout:" do
+    it "takes one number for both phases" do
+      adapter = Keiyaku::NetHTTPAdapter.new(timeout: 5)
+      expect(adapter.instance_variable_get(:@open_timeout)).to eq 5
+      expect(adapter.instance_variable_get(:@read_timeout)).to eq 5
+    end
+
+    it "takes them apart" do
+      adapter = Keiyaku::NetHTTPAdapter.new(timeout: { open: 2, read: 10 })
+      expect(adapter.instance_variable_get(:@open_timeout)).to eq 2
+      expect(adapter.instance_variable_get(:@read_timeout)).to eq 10
+    end
+
+    it "says so rather than silently ignoring a key it does not know" do
+      expect { Keiyaku::NetHTTPAdapter.new(timeout: { open: 2, write: 10 }) }
+        .to raise_error(ArgumentError, /takes open: and read:, not :write/)
+    end
+
+    it "reaches the adapter the client builds for itself" do
+      adapter = petstore(timeout: { open: 1, read: 20 }).instance_variable_get(:@adapter)
+      expect(adapter.instance_variable_get(:@read_timeout)).to eq 20
+    end
+  end
+
   # The shipped adapters, over the same socket as everything else. Neither gem
   # is a dependency of keiyaku, so a missing one skips rather than fails.
   { "faraday" => :FaradayAdapter, "http" => :HTTPAdapter }.each do |gem_name, adapter_name|

@@ -1,6 +1,6 @@
 # Signatures for the runtime. Generated clients declare `class Client <
-# Keiyaku::Client` and `class Pet < ::Data`, so without these their own RBS
-# would not resolve — which would defeat the point of emitting it.
+# Keiyaku::Client` and `class Pet < Keiyaku::Model`, so without these their own
+# RBS would not resolve — which would defeat the point of emitting it.
 
 module Keiyaku
   VERSION: String
@@ -39,6 +39,20 @@ module Keiyaku
   class ServerError < HTTPError
   end
 
+  # The request did not happen. Every adapter raises this rather than its own
+  # library's class, so moving a client onto another HTTP stack does not
+  # change what the code around it has to rescue.
+  class ConnectionError < Error
+  end
+
+  # What a transport failure looks like from the stdlib.
+  TRANSPORT_ERRORS: Array[Class]
+
+  # One number for both phases, or `{ open:, read: }` for two.
+  type timeout = Integer | Float | Hash[Symbol, Integer | Float]
+
+  def self.timeouts: (timeout) -> [Integer | Float, Integer | Float]
+
   def self.camelize: (String | Symbol) -> String
   def self.snake: (String | Symbol) -> String
 
@@ -47,10 +61,42 @@ module Keiyaku
   def self.coerce: (untyped type, untyped value, String path) -> untyped
   def self.dump: (untyped) -> untyped
 
-  # Returns a Data subclass built at runtime; the generator emits a proper
-  # class declaration for each one alongside the code. The fields are a
+  # Returns a Keiyaku::Model subclass built at runtime; the generator emits a
+  # proper class declaration for each one alongside the code. The fields are a
   # positional Hash so that a property named `from` cannot displace the option.
-  def self.model: (Hash[Symbol, untyped] fields, ?required: Array[Symbol], ?from: Hash[Symbol, String]) -> untyped
+  def self.model: (
+    Hash[Symbol, untyped] fields, ?required: Array[Symbol], ?from: Hash[Symbol, String], ?open: untyped
+  ) -> untyped
+
+  # The value type a schema becomes. Each generated model declares its own
+  # fields, `new` and `with`; what is here is what they all share.
+  class Model
+    def self.members: () -> Array[Symbol]
+    def self.types: () -> Hash[Symbol, untyped]
+    def self.json_names: () -> Hash[Symbol, String]
+    def self.required: () -> Array[Symbol]
+
+    # What `additionalProperties` said: false, true, or the type declared for
+    # the values of the properties the schema did not name.
+    def self.additional: () -> untyped
+    def self.open?: () -> bool
+
+    def self.cast: (untyped, ?String) -> untyped
+    def self.__define: (Hash[Symbol, untyped] fields, required: Array[Symbol], from: Hash[Symbol, String], open: untyped) -> void
+
+    def initialize: (**untyped) -> void
+
+    # A field by name, whether or not it is one Ruby will take through a dot,
+    # and on an open model the properties the document did not name.
+    def []: (String | Symbol) -> untyped
+
+    def with: (**untyped) -> self
+    def to_h: () -> Hash[Symbol, untyped]
+    def deconstruct: () -> Array[untyped]
+    def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, untyped]
+    def to_json_hash: () -> Hash[String, untyped]
+    def to_json: (*untyped) -> String
+  end
 
   class OneOf
     def self.[]: (*untyped variants, on: String, ?map: Hash[untyped, untyped]) -> OneOf
@@ -93,7 +139,7 @@ module Keiyaku
   class NetHTTPAdapter
     include _Adapter
 
-    def initialize: (?timeout: Integer | Float) -> void
+    def initialize: (?timeout: timeout) -> void
   end
 
   # Loaded only by `require "keiyaku/adapters/faraday"`. Faraday's own types
@@ -102,14 +148,14 @@ module Keiyaku
   class FaradayAdapter
     include _Adapter
 
-    def initialize: (?untyped connection, **untyped) -> void
+    def initialize: (?untyped connection, ?timeout: timeout?, **untyped) -> void
   end
 
   # Loaded only by `require "keiyaku/adapters/http"`. Wraps the http.rb gem.
   class HTTPAdapter
     include _Adapter
 
-    def initialize: (?untyped client, ?timeout: Integer | Float) -> void
+    def initialize: (?untyped client, ?timeout: timeout) -> void
   end
 
   class Client
@@ -150,7 +196,7 @@ module Keiyaku
     # which it is.
     def initialize: (
       ?base_url: String?, ?auth: Hash[Symbol | String, untyped] | String | Array[String] | nil,
-      ?adapter: _Adapter?, ?timeout: Integer | Float, ?retries: Integer, ?logger: untyped
+      ?adapter: _Adapter?, ?timeout: timeout, ?retries: Integer, ?logger: untyped
     ) -> void
   end
 end

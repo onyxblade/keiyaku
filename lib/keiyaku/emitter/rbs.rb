@@ -138,17 +138,63 @@ module Keiyaku
         end
 
         readers = bare.map { |field, type| "    attr_reader #{field}: #{declared.(field, type)}" }
-        unless quoted.empty?
-          overloads = quoted.map { |field, type| "(#{field.inspect}) -> #{declared.(field, type)}" }
+
+        # A model open to properties the document did not name reads them
+        # through the same `[]`, and there is nothing to say about their names
+        # — so the overload that takes any String comes last, after the ones
+        # that know what they are returning.
+        overloads = quoted.map { |field, type| "(#{field.inspect}) -> #{declared.(field, type)}" }
+        overloads << "(String | Symbol) -> untyped" if model.open
+        unless overloads.empty?
           readers << "    def []: #{overloads.join("\n           | ")}"
         end
+
         <<~RBS.chomp
-            class #{const} < ::Data
+            class #{const} < ::Keiyaku::Model
           #{readers.join("\n")}
               def self.cast: (untyped, ?String) -> #{const}
+          #{constructors(const, model)}
+              def deconstruct_keys: (Array[Symbol]?) -> Hash[Symbol, #{field_values(model)}]
               def to_json_hash: () -> Hash[String, untyped]
             end
         RBS
+      end
+
+      # What a pattern match binds. Only a subset of the fields comes back, so
+      # a record type would be a lie; the union of what any of them holds is
+      # still narrower than the untyped the base class has to declare.
+      def field_values(model)
+        types = model.fields.values.map { type_for(_1) }.uniq
+        return "untyped" if types.empty? || types.include?("untyped")
+
+        (types + ["nil"]).join(" | ")
+      end
+
+      # `new` and `with`, spelled out. Inherited from Keiyaku::Model they are
+      # `(**untyped)`, which typechecks a call site that leaves out a required
+      # field and one that misspells an optional one — the two mistakes a
+      # signature for a request body exists to catch.
+      #
+      # An open model still takes anything beyond its fields, so **untyped is
+      # the truth there and the declared keywords are what is gained.
+      def constructors(const, model)
+        keywords = model.fields.filter_map do |field, type|
+          next unless Names.bare?(field)
+
+          [field, "#{type_for(type)}#{"?" unless model.required.include?(field)}"]
+        end
+
+        required, optional = keywords.partition { |field, _| model.required.include?(field) }
+        new_args = required.map { |field, type| "#{field}: #{type}" } +
+                   optional.map { |field, type| "?#{field}: #{type}" }
+        with_args = keywords.map { |field, type| "?#{field}: #{type}" }
+
+        # A field Ruby will not take as a keyword label cannot be declared as
+        # one, so a model with any is as open as one the document opened.
+        rest = model.open || keywords.size < model.fields.size ? ["**untyped"] : []
+
+        ["    def self.new: (#{(new_args + rest).join(", ")}) -> #{const}",
+         "    def with: (#{(with_args + rest).join(", ")}) -> #{const}"].join("\n")
       end
 
       def method_rbs(op)

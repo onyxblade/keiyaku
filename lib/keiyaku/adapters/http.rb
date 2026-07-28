@@ -18,12 +18,15 @@ module Keiyaku
   # is no telling it apart from NetHTTPAdapter.
   class HTTPAdapter
     def initialize(client = nil, timeout: 15)
-      @client = client || HTTP.timeout(timeout)
+      open, read = Keiyaku.timeouts(timeout)
+      @client = client || HTTP.timeout(connect: open, read:)
     end
 
     def call(verb, uri, headers, body)
       response = @client.headers(headers).request(verb, uri, body.nil? ? {} : { body: })
       [response.code, response.headers.to_h, response.body.to_s]
+    rescue HTTP::ConnectionError, HTTP::TimeoutError, *TRANSPORT_ERRORS => e
+      raise ConnectionError, "#{verb.to_s.upcase} #{uri}: #{e.message}"
     end
   end
 end
