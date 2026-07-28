@@ -193,7 +193,9 @@ module Keiyaku
 
       def method_rbs(op)
         return if op[:name].nil?
-        return "    def #{op[:name]}: (*untyped) -> bot  # not generated: #{op[:unsupported]}" if op[:unsupported]
+        if op[:unsupported]
+          return "    def #{op[:name]}: (*untyped) -> bot  # not generated: #{Emitter.comment(op[:unsupported])}"
+        end
 
         types = op[:types]
         positional = op[:template].scan(/\{(\w+)\}/).flatten.map do |param|

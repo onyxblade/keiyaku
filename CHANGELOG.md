@@ -70,3 +70,14 @@ First cut. Generates a client, its value types and an RBS file from an OpenAPI
 - the generator loads what it wrote, in another process, and reports a file
   Ruby cannot read back as a bug in itself rather than leaving it to be found
   at the first `require`
+- a name the document chose reaches the generated files as data rather than as
+  text spliced into them. A query parameter called `id]` used to close the
+  `%i[]` it was written in and leave the rest of its own name to be read as
+  Ruby — by the load check first, since that runs what it just wrote, and by
+  every `require` of the client after it. The same for `deepObject` names and
+  for the refusals written as comments, which are now kept to the one line a
+  comment holds
+- `x-keiyaku-paginate` keys are checked against the ones it has, so `pre:` for
+  `per:` is a refusal rather than a walk that reads its page size off nothing
+- `--module` has to be one Ruby constant, said against the flag rather than
+  found later in a file that will not load

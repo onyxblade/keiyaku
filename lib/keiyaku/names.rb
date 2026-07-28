@@ -66,6 +66,21 @@ module Keiyaku
       const
     end
 
+    # The module the generated files declare. It is the caller's word rather
+    # than the document's, so what this catches is a `--module` that would
+    # become three files Ruby cannot read — reported against the flag that
+    # asked for it rather than as the generator blaming itself in the load
+    # check. One constant and no more: `module Acme::Api` needs an Acme that
+    # nothing here defines, and is a NameError at the first require.
+    def namespace(name)
+      unless name.to_s.match?(/\A[A-Z][a-zA-Z0-9]*\z/)
+        raise Impossible, "#{name.inspect} cannot be the module the generated files declare; " \
+                          "it has to be one Ruby constant, like Petstore"
+      end
+
+      name.to_s
+    end
+
     # Not called `method`, which would shadow the one every object has — the
     # kind of collision the rest of this table exists to refuse.
     def operation(name)

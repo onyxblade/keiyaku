@@ -76,6 +76,14 @@ RSpec.describe Keiyaku::Emitter do
       expect(emitter.refusals.first.reason).to include("unknown strategy")
     end
 
+    # The hint is written for this generator rather than taken from the
+    # document's vocabulary, so a key it does not know is a typo — and a typo
+    # in `per` is a walk that reads the page size off nothing.
+    it "is refused when it carries a key that means nothing" do
+      emitter = generate(paginated("{ by: offset, param: limit, pre: 100 }"))
+      expect(emitter.refusals.first.reason).to include(%(unknown key "pre"))
+    end
+
     it "is accepted when it names parameters the operation has" do
       emitter = generate(paginated("{ by: offset, param: limit, size: limit }"))
       expect(emitter.refusals).to be_empty
@@ -992,6 +1000,79 @@ RSpec.describe Keiyaku::Emitter do
         cast = Recursive::Node.cast({ "name" => "root", "children" => [{ "name" => "leaf" }] })
         expect(cast.children.first).to be_a(Recursive::Node).and have_attributes(name: "leaf")
       end
+    end
+  end
+
+  # A document is data and the generator writes source, so every name it takes
+  # from one has to arrive as a value rather than as text spliced into a file.
+  # The consequence of getting this wrong is not a broken file: the generator
+  # loads what it wrote, so a name that closes the literal it lands in is Ruby
+  # the generator runs on itself, and Ruby that every later `require` runs
+  # again.
+  describe "a document whose names are Ruby" do
+    # A name carrying a newline goes into the YAML as JSON writes it, which is
+    # one line there and two by the time the generator sees it.
+    def hostile(param)
+      document(<<~YAML)
+        operationId: listThings
+        parameters:
+          - { #{param} }
+        responses: { "200": { description: ok } }
+      YAML
+    end
+
+    after { Object.send(:remove_const, :Hostile) if Object.const_defined?(:Hostile) }
+
+    let(:injection) { %(id]\nraise "read as Ruby"\n%i[id) }
+
+    it "writes a query parameter's name as data, and keeps it whole" do
+      generate(hostile("name: #{injection.to_json}, in: query, schema: { type: string }"),
+               namespace: "Hostile") do |emitter, dir|
+        # The load check would have run the raise in the other process.
+        expect(emitter.broken).to be_nil
+        load File.join(dir, "client.rb")
+        expect(Hostile::Client.operations[:list_things][:query]).to eq [[injection, false]]
+      end
+    end
+
+    it "writes a deepObject parameter's name the same way" do
+      param = "name: #{injection.to_json}, in: query, style: deepObject, schema: { type: object }"
+      generate(hostile(param), namespace: "Hostile") do |emitter, dir|
+        expect(emitter.broken).to be_nil
+        load File.join(dir, "client.rb")
+        expect(Hostile::Client.operations[:list_things][:deep_object]).to eq [injection]
+      end
+    end
+
+    # The operationId is refused — a method cannot be called that — and the
+    # refusal is written into the client as a comment, which is one line.
+    it "keeps a refusal it cannot name on one line of comment" do
+      generate(document(<<~YAML), namespace: "Hostile") do |emitter, dir|
+        operationId: #{%(1\nraise "read as Ruby").to_json}
+        responses: { "200": { description: ok } }
+      YAML
+        expect(emitter.broken).to be_nil
+        source = File.read(File.join(dir, "client.rb"))
+        expect(source).to include(%(# cannot be generated: 1 raise "read as Ruby":))
+        expect(source).not_to match(/^\s*raise/)
+      end
+    end
+
+    # The reason for a refusal quotes the document too, and the RBS says which
+    # methods were not generated in a comment of its own.
+    it "keeps the reason for a refusal on one line of RBS" do
+      param = "name: #{injection.to_json}, in: query, explode: false, schema: { type: string }"
+      generate(hostile(param), namespace: "Hostile") do |emitter, dir|
+        expect(emitter.refusals.first.reason).to include("explode=false")
+        expect(emitter.broken).to be_nil
+        expect(File.read(File.join(dir, "hostile.rbs"))).not_to match(/^\s*raise/)
+      end
+    end
+
+    # Not the document's word but the caller's, and the same file either way.
+    it "refuses a module name that is not one Ruby constant" do
+      expect { generate(hostile("name: id, in: query, schema: { type: string }"), namespace: "Evil; raise") }
+        .to raise_error(Keiyaku::Impossible, /one Ruby constant/)
     end
   end
 

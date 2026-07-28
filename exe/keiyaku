@@ -23,7 +23,12 @@ abort parser.to_s unless spec && options[:module]
 abort "keiyaku: #{spec}: no such file" unless File.file?(spec)
 
 FileUtils.mkdir_p(options[:out])
-emitter = Keiyaku::Emitter.new(spec, namespace: options[:module])
+emitter =
+  begin
+    Keiyaku::Emitter.new(spec, namespace: options[:module])
+  rescue Keiyaku::Impossible => e
+    abort "keiyaku: #{e.message}"
+  end
 operations = emitter.emit(options[:out])
 
 built = operations.count { !_1[:unsupported] }

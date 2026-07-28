@@ -47,18 +47,24 @@ module Keiyaku
     # an x-keiyaku-paginate extension on the operation.
     PAGINATION = %w[offset page cursor link].freeze
 
+    # The keys `x-keiyaku-paginate` has. A hint is written for this generator
+    # rather than taken from the document's own vocabulary, so a key that is
+    # not one of these is a typo — and a typo in `per` or `items` is a client
+    # that walks wrongly and says nothing about it.
+    PAGINATION_KEYS = %w[by param size per from items next].freeze
+
     attr_reader :refusals, :notes
 
     def initialize(path, namespace:)
       @spec = path.end_with?(".json") ? JSON.parse(File.read(path)) : YAML.load_file(path)
-      @namespace = namespace
+      @namespace = Names.namespace(namespace)
       @models = {}      # constant name => args for Keiyaku.model(...), or union source
       @unions = {}      # union source => its RBS expansion, e.g. "Dog | Cat"
       @deps = {}        # constant name => referenced constant names
       @poisoned = {}    # constant name => why nothing may be typed as it
       @refusals = []
       @notes = []
-      @rbs = RBS.new(namespace:, models: @models, unions: @unions)
+      @rbs = RBS.new(namespace: @namespace, models: @models, unions: @unions)
     end
 
     # The generated files, and whether Ruby could read them back. Anything
@@ -75,6 +81,12 @@ module Keiyaku
       @broken = verify ? load_check(dir) : nil
       operations
     end
+
+    # Prose for a generated comment. A refusal quotes the document, and a
+    # document's string can hold a newline: interpolated into a `#` comment it
+    # would end the comment, and whatever came after it would be read as Ruby.
+    # A comment is one line, so this is what a comment can hold.
+    def self.comment(text) = text.to_s.gsub(/\s+/, " ").strip
 
     private
 
@@ -673,6 +685,8 @@ module Keiyaku
 
       if !PAGINATION.include?(by)
         "unknown strategy #{hint["by"].inspect}, expected one of #{PAGINATION.join(", ")}"
+      elsif (unknown = hint.keys - PAGINATION_KEYS).any?
+        "unknown key #{unknown.first.inspect}, expected one of #{PAGINATION_KEYS.join(", ")}"
       elsif (wrong = %w[param size].find { hint[_1] && !names.include?(hint[_1]) })
         "#{wrong} #{hint[wrong].inspect} is not a query parameter of this operation"
       elsif by != "link" && hint["param"].nil?
@@ -682,6 +696,9 @@ module Keiyaku
       end
     end
 
+    # The keys are labels rather than anything the document chose: a hint that
+    # reaches this has been checked against PAGINATION_KEYS, and the strategy
+    # against PAGINATION. Everything else is the document's and is inspected.
     def hash_source(hint)
       "{ #{hint.map { |key, value| "#{key}: #{key == "by" ? ":#{value}" : value.inspect}" }.join(", ")} }"
     end
@@ -747,6 +764,30 @@ module Keiyaku
     # `{ "+1": Integer }` is the same Hash as `{ :"+1" => Integer }`.
     def label(field) = Names.bare?(field) ? field : field.inspect
 
+    # A name that can be written inside `%w[]` or `%i[]`. Neither literal has
+    # any escapes, so the only names they can hold are the ones that need
+    # none: every character here is one that cannot end the list or start an
+    # interpolation. The trailing bang is the runtime's mark for a required
+    # parameter rather than anything the document wrote.
+    LISTABLE = /\A[a-zA-Z0-9_.-]+!?\z/
+
+    # The document's names as source. Written as the word list they read best
+    # as where every name is a word, and one `inspect` at a time where one is
+    # not — a query parameter called `id]` would otherwise close the literal
+    # and leave the rest of its name to be read as Ruby, by the load check
+    # first and by every `require` of the generated client after that.
+    def symbol_list(names)
+      return "%i[#{names.join(" ")}]" if names.all? { _1.match?(LISTABLE) }
+
+      "[#{names.map { _1.to_sym.inspect }.join(", ")}]"
+    end
+
+    def string_list(names)
+      return "%w[#{names.join(" ")}]" if names.all? { _1.match?(LISTABLE) }
+
+      "[#{names.map(&:inspect).join(", ")}]"
+    end
+
     def model_options(model, defined = [])
       options = []
       options << "required: %i[#{model.required.join(" ")}]" if model.required.any?
@@ -793,12 +834,12 @@ module Keiyaku
 
     def client_source(operations)
       lines = operations.map do |op|
-        next "    # cannot be generated: #{op[:label]}: #{op[:unsupported]}" if op[:name].nil?
+        next "    # cannot be generated: #{Emitter.comment("#{op[:label]}: #{op[:unsupported]}")}" if op[:name].nil?
         next "    unsupported :#{op[:name]}, #{op[:unsupported].inspect}" if op[:unsupported]
 
         args = [":#{op[:name]}", op[:template].inspect]
-        args << "query: %i[#{op[:query].join(" ")}]" if op[:query].any?
-        args << "deep_object: %w[#{op[:deep_object].join(" ")}]" if op[:deep_object].any?
+        args << "query: #{symbol_list(op[:query])}" if op[:query].any?
+        args << "deep_object: #{string_list(op[:deep_object])}" if op[:deep_object].any?
         args << "header: { #{op[:header].map { |json, ruby| "#{json.inspect} => :#{ruby}" }.join(", ")} }" if op[:header].any?
         args << "body: #{op[:body]}" if op[:body]
         args << "form: #{op[:form]}" if op[:form]
