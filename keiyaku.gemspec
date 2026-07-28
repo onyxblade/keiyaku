@@ -34,7 +34,7 @@ Gem::Specification.new do |spec|
     "lib/**/*.rb",
     "sig/**/*.rbs",
     "exe/*",
-    "{README,CHANGELOG}.md",
+    "{README,DESIGN,CHANGELOG}.md",
     "LICENSE.txt"
   ]
   spec.require_paths = ["lib"]
