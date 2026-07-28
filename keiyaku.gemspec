@@ -13,8 +13,8 @@ Gem::Specification.new do |spec|
     Generates Ruby clients from OpenAPI documents that carry only what is
     specific to one API — an operation table and the schema fields. Transport,
     parameter serialization, casting and error mapping live in a shared
-    runtime, so a nineteen-operation client is about seventy lines. Types are
-    Data subclasses and the generator emits RBS alongside them, so terse Ruby
+    runtime, so a nineteen-operation client is about seventy lines. A schema
+    becomes a frozen value type with RBS emitted beside it, so terse Ruby
     costs nothing in tooling. Constructs it cannot translate faithfully are
     refused at generation time rather than emitted as plausible guesses.
   TEXT

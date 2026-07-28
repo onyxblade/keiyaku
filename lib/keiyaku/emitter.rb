@@ -190,8 +190,8 @@ module Keiyaku
     def define_model(const, schema, upload: false)
       schema = merge_all_of(schema)
 
-      # A component that is itself a union is not a Data subclass; it is a
-      # constant holding the union, so that a $ref to it still resolves.
+      # A component that is itself a union is not a model; it is a constant
+      # holding the union, so that a $ref to it still resolves.
       if schema["oneOf"] || schema["anyOf"]
         deps = []
         source = collapse_union(schema, const, deps)
@@ -206,7 +206,7 @@ module Keiyaku
 
       # Nor is a component that is not an object at all. GitHub has ninety-odd
       # — `author-association` is a string with an enum, `alert-number` an
-      # integer — and a Data with no fields casts nothing, so a $ref to one
+      # integer — and a model with no fields casts nothing, so a $ref to one
       # produced a client that loaded, typechecked, and then raised on the
       # first response that carried the field. It becomes the type it says it
       # is, the way the union branch above becomes the union it is.
